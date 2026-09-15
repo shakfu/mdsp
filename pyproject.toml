@@ -4,14 +4,14 @@
 [project]
 name = "mdsp"
 version = "0.1.0"
-description = "A pure-Python package with no runtime dependencies"
+description = "Python audio DSP library with kernels written in Mojo"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
-keywords = ["python", "library"]
-# This project intentionally has no runtime dependencies.
+keywords = ["audio", "dsp", "signal-processing", "mojo", "synthesis", "filters"]
 dependencies = [
-    "mojo>=1.0.0",
+    "mojo>=1.0.0,<1.1",
+    "numpy>=2.2.6",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -22,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Multimedia :: Sound/Audio",
     "Typing :: Typed",
 ]
 
@@ -46,7 +46,8 @@ source-include = ["tests/**", "CHANGELOG.md", "LICENSE"]
 
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "src/mdsp"]
+addopts = "--doctest-modules"
 
 [tool.ruff]
 src = ["src", "tests"]

@@ -1,2 +1,49 @@
-# mojo-dsp
-translation of some popular dsp libraries into mojolang
+# mdsp
+
+Python audio DSP primitives with kernels written in [Mojo](https://mojolang.org).
+
+All processing uses planar `[channels, frames]` float32 buffers. Each primitive processes a whole buffer in one Mojo call, with the GIL released. Python chains primitives.
+
+```python
+import mdsp
+
+tone = mdsp.Phasor(freq=110.0).generate(48000)
+chain = mdsp.Chain(mdsp.Biquad("lowpass", cutoff=800.0, q=4.0), mdsp.Gain(0.5))
+out = chain.process(tone)  # AudioBuffer, 1 channel, 48000 frames
+```
+
+## Primitives
+
+| Kind | Classes |
+|-|-|
+| Generators | `Phasor`, `Sine`, `Saw`, `Square` (PolyBLEP band-limited) |
+| Filters | `OnePole`, `Biquad` (lowpass, highpass, bandpass, notch) |
+| Delays | `Delay` (fractional, feedback, mix) |
+| Ops | `Gain` |
+| Composition | `Chain` |
+
+Units are stateful: state carries across `process` / `generate` calls until `reset()`. An instance is not thread-safe; separate instances run in parallel threads.
+
+## Build
+
+Requires Linux x86_64, `uv`, `make`, and a C linker (`gcc`). Mojo 1.0 is installed into `.venv` as a Python dependency.
+
+```bash
+make build   # uv sync, then mojo build -> src/mdsp/_core.so
+make test    # Python tests, doctests, Mojo kernel tests
+make qa      # lint, format check, mypy, tests
+```
+
+## Layout
+
+| Path | Contents |
+|-|-|
+| `src/mdsp/_mojo/dsp/` | Mojo kernels implementing the `Processor` trait |
+| `src/mdsp/_mojo/_core.mojo` | Python bindings: `Bank[P]`, one kernel per channel |
+| `src/mdsp/_base.py` | Python base classes; validates buffers before they reach Mojo |
+| `tests/mojo/` | Kernel contract tests, run by pytest via `mojo run` |
+| `docs/dev/` | Design spikes and decision records |
+
+## Direction
+
+The Python block chain is the first layer. The planned next layer is a graph engine in Mojo that runs a whole graph per call, reusing the same kernels. See `docs/dev/spikes/2026-09-15-dispatch-gil/`.
