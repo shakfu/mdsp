@@ -1,0 +1,102 @@
+name: Wheels
+
+# Builds the sdist and one py3-none platform wheel per platform, then installs
+# each wheel into clean environments (no Mojo) and runs the test suite.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wheel:
+    name: Wheel (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, platform: linux-x86_64 }
+          - { os: ubuntu-24.04-arm, platform: linux-aarch64 }
+          - { os: macos-latest, platform: macos-arm64 }
+    env:
+      # Bundled Mojo runtime libraries require macOS 13.
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Build and repair wheel
+        run: make wheel
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-wheel-${{ matrix.platform }}
+          path: dist/*.whl
+          retention-days: 14
+
+  sdist:
+    name: sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Build sdist
+        run: uv build --sdist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-sdist
+          path: dist/*.tar.gz
+          retention-days: 14
+
+  test:
+    name: Test wheel (${{ matrix.platform }}/py${{ matrix.python }})
+    needs: wheel
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux-x86_64, linux-aarch64, macos-arm64]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          - { platform: linux-x86_64, os: ubuntu-latest }
+          - { platform: linux-aarch64, os: ubuntu-24.04-arm }
+          - { platform: macos-arm64, os: macos-latest }
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist-wheel-${{ matrix.platform }}
+          path: dist
+
+      - name: Install wheel into a clean environment
+        run: |
+          uv venv --python ${{ matrix.python }} "$RUNNER_TEMP/venv"
+          VIRTUAL_ENV="$RUNNER_TEMP/venv" uv pip install dist/*.whl pytest
+          "$RUNNER_TEMP/venv/bin/python" -c "import importlib.util as u, sys; sys.exit(u.find_spec('mojo') is not None)"
+
+      - name: Run tests against the installed wheel
+        run: |
+          # Outside the checkout, so the source tree is not importable.
+          cp -r tests "$RUNNER_TEMP/tests"
+          rm "$RUNNER_TEMP/tests/test_mojo_kernels.py" "$RUNNER_TEMP/tests/test_packaging.py"
+          cd "$RUNNER_TEMP"
+          venv/bin/python -m pytest -p no:cacheprovider tests

@@ -33,13 +33,13 @@ jobs:
         run: uv sync --dev
 
       - name: Lint with ruff
-        run: uv run ruff check src/ tests/
+        run: uv run ruff check src/ tests/ hatch_build.py
 
       - name: Check formatting with ruff
-        run: uv run ruff format --check src/ tests/
+        run: uv run ruff format --check src/ tests/ hatch_build.py
 
       - name: Type check with mypy
-        run: uv run mypy src/mdsp
+        run: uv run mypy src/mdsp hatch_build.py
 
       - name: Build Mojo extension
         run: make build
@@ -54,64 +54,7 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  build:
-    name: Build (${{ matrix.os }}/${{ matrix.python-version }})
+  wheels:
+    name: Wheels
     needs: qa
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest]
-        python-version: ["3.10", "3.13"]
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
-        with:
-          enable-cache: true
-
-      - name: Set up Python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: uv sync
-
-      - name: Build wheel
-        run: uv build --wheel
-
-      - name: Build Mojo extension
-        run: make build
-
-      - name: Run tests
-        run: uv run pytest -v
-
-      - name: Upload wheel artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: wheel-${{ matrix.os }}-py${{ matrix.python-version }}
-          path: dist/*.whl
-          retention-days: 7
-
-  collect-artifacts:
-    name: Collect all artifacts
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: all-wheels
-          pattern: wheel-*
-          merge-multiple: true
-
-      - name: List collected wheels
-        run: ls -la all-wheels/
-
-      - name: Upload combined artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: all-wheels
-          path: all-wheels/
-          retention-days: 14
+    uses: ./.github/workflows/wheels.yml

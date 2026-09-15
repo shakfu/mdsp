@@ -21,28 +21,8 @@ concurrency:
 
 jobs:
   build:
-    name: Build sdist and wheel
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
-        with:
-          enable-cache: true
-
-      - name: Build distributions
-        run: uv build
-
-      - name: Check distributions
-        run: uvx twine check dist/*
-
-      - name: Upload distributions
-        uses: actions/upload-artifact@v7
-        with:
-          name: dist
-          path: dist/
-          retention-days: 14
+    name: Build sdist and wheels
+    uses: ./.github/workflows/wheels.yml
 
   publish-testpypi:
     name: Publish to TestPyPI
@@ -58,8 +38,9 @@ jobs:
       - name: Download distributions
         uses: actions/download-artifact@v8
         with:
-          name: dist
+          pattern: dist-*
           path: dist/
+          merge-multiple: true
 
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -81,8 +62,9 @@ jobs:
       - name: Download distributions
         uses: actions/download-artifact@v8
         with:
-          name: dist
+          pattern: dist-*
           path: dist/
+          merge-multiple: true
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -101,8 +83,9 @@ jobs:
       - name: Download distributions
         uses: actions/download-artifact@v8
         with:
-          name: dist
+          pattern: dist-*
           path: dist/
+          merge-multiple: true
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

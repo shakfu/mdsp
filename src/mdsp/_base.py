@@ -10,6 +10,7 @@ Instances are not thread-safe. Distinct instances may run in parallel threads.
 from __future__ import annotations
 
 import math
+import sysconfig
 from collections.abc import Callable
 from typing import Any, ClassVar, Protocol, overload
 
@@ -17,6 +18,15 @@ import numpy as np
 from numpy.typing import NDArray
 
 from mdsp.buffer import AudioBuffer
+
+
+def _check_interpreter(gil_disabled: bool) -> None:
+    # mdsp._core segfaults on import under free-threaded CPython (tested 3.14t).
+    if gil_disabled:
+        raise ImportError("mdsp does not support free-threaded Python builds")
+
+
+_check_interpreter(bool(sysconfig.get_config_var("Py_GIL_DISABLED")))
 
 try:
     from mdsp import _core

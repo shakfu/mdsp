@@ -1,7 +1,7 @@
 # Makefile frontend for mdsp
 #
-# Python packaging is handled by uv_build via pyproject.toml. The Mojo
-# extension module src/mdsp/_core.so is built here with `mojo build`.
+# Packaging uses hatchling; hatch_build.py compiles the Mojo extension for
+# wheels. For development, `make build` compiles src/mdsp/_core.so in place.
 
 .PHONY: all sync build rebuild test lint lint-check format format-check \
         typecheck qa clean distclean wheel sdist dist check publish-test \
@@ -10,9 +10,6 @@
 MOJO_ROOT := src/mdsp/_mojo
 MOJO_SRC := $(shell find $(MOJO_ROOT) -name '*.mojo')
 CORE_SO := src/mdsp/_core.so
-# No FMA contraction: fused and unfused paths round differently, so `tick` and
-# `process` diverged. Keep in sync with tests/test_mojo_kernels.py.
-MOJO_FLAGS := --fp-mode contract=off
 
 # Default target
 all: build
@@ -24,8 +21,8 @@ sync:
 # Sync the environment and build the Mojo extension if its sources changed
 build: sync $(CORE_SO)
 
-$(CORE_SO): $(MOJO_SRC)
-	@uv run mojo build --emit shared-lib $(MOJO_FLAGS) -I $(MOJO_ROOT) $(MOJO_ROOT)/_core.mojo -o $@
+$(CORE_SO): $(MOJO_SRC) hatch_build.py
+	@uv run python hatch_build.py $@
 
 # Force a rebuild of the Mojo extension
 rebuild:
@@ -38,30 +35,38 @@ test: build
 
 # Lint with ruff (applies fixes)
 lint:
-	@uv run ruff check --fix src/ tests/
+	@uv run ruff check --fix src/ tests/ hatch_build.py
 
 # Lint with ruff (check only, no fixes)
 lint-check:
-	@uv run ruff check src/ tests/
+	@uv run ruff check src/ tests/ hatch_build.py
 
 # Format with ruff
 format:
-	@uv run ruff format src/ tests/
+	@uv run ruff format src/ tests/ hatch_build.py
 
 # Check formatting without modifying files
 format-check:
-	@uv run ruff format --check src/ tests/
+	@uv run ruff format --check src/ tests/ hatch_build.py
 
 # Type check with mypy
 typecheck:
-	@uv run mypy src/mdsp
+	@uv run mypy src/mdsp hatch_build.py
 
 # Run a full quality assurance check (non-mutating; mirrors CI)
 qa: lint-check format-check typecheck test
 
-# Build wheel (not yet usable: see TODO.md)
+# Build a platform wheel with bundled Mojo runtime libraries, then retag it
+# for PyPI (auditwheel on Linux, delocate on macOS). Output: dist/
 wheel:
-	@uv build --wheel
+	@rm -rf dist/raw
+	@uv build --wheel -o dist/raw
+ifeq ($(shell uname -s),Darwin)
+	@uv run delocate-wheel --require-archs arm64 -w dist dist/raw/*.whl
+else
+	@uv run auditwheel repair --plat manylinux_2_35_$(shell uname -m) -w dist dist/raw/*.whl
+endif
+	@rm -rf dist/raw
 
 # Build source distribution
 sdist:
@@ -140,7 +145,7 @@ help:
 	@echo "  format-check - Check formatting without modifying files"
 	@echo "  typecheck    - Type check with mypy"
 	@echo "  qa           - Run full quality assurance (non-mutating: lint-check, format-check, typecheck, test)"
-	@echo "  wheel        - Build wheel distribution"
+	@echo "  wheel        - Build a repaired platform wheel into dist/"
 	@echo "  sdist        - Build source distribution"
 	@echo "  dist         - Build both wheel and sdist"
 	@echo "  check        - Check distributions with twine"

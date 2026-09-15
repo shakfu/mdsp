@@ -20,7 +20,7 @@ from mdsp import (
     Square,
     _core,
 )
-from mdsp._base import Param, _Unit
+from mdsp._base import Param, _check_interpreter, _Unit
 
 SR = 48000.0
 UNITS = [Phasor, Sine, Saw, Square, OnePole, Biquad, Gain, Delay]
@@ -145,3 +145,9 @@ def test_parallel_instances_match_sequential():
         t.join()
     for got, want in zip(results, expected):
         np.testing.assert_array_equal(got, want)
+
+
+def test_free_threaded_interpreter_is_rejected():
+    _check_interpreter(False)
+    with pytest.raises(ImportError, match="free-threaded"):
+        _check_interpreter(True)

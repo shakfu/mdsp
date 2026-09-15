@@ -24,14 +24,23 @@ out = chain.process(tone)  # AudioBuffer, 1 channel, 48000 frames
 
 Units are stateful: state carries across `process` / `generate` calls until `reset()`. An instance is not thread-safe; separate instances run in parallel threads.
 
-## Build
-
-Requires Linux x86_64, `uv`, `make`, and a C linker (`gcc`). Mojo 1.0 is installed into `.venv` as a Python dependency.
+## Install
 
 ```bash
-make build   # uv sync, then mojo build -> src/mdsp/_core.so
+pip install mdsp
+```
+
+Wheels: Linux x86_64 and aarch64 (glibc 2.35+), macOS 13+ arm64, CPython 3.10-3.14. Free-threaded builds are not supported. Wheels bundle the Mojo runtime libraries; the Mojo compiler is not needed.
+
+## Build
+
+Requires `uv`, `make`, and a C linker (`gcc`). The Mojo compiler is installed into `.venv` as a dev dependency.
+
+```bash
+make build   # uv sync, then compile src/mdsp/_core.so in place
 make test    # Python tests, doctests, Mojo kernel tests
 make qa      # lint, format check, mypy, tests
+make wheel   # platform wheel with bundled runtime, repaired into dist/
 ```
 
 ## Layout
@@ -42,6 +51,7 @@ make qa      # lint, format check, mypy, tests
 | `src/mdsp/_mojo/_core.mojo` | Python bindings: `Bank[P]`, one kernel per channel |
 | `src/mdsp/_base.py` | Python base classes; validates buffers before they reach Mojo |
 | `tests/mojo/` | Kernel contract tests, run by pytest via `mojo run` |
+| `hatch_build.py` | Wheel build hook: compiles and bundles the extension |
 | `docs/dev/` | Design spikes and decision records |
 
 ## Direction

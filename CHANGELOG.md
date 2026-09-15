@@ -15,11 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Delay`: linear-interpolated delay line with feedback and dry/wet mix. The line is a `List` inside the kernel, so kernels with heap state stay `Copyable` and fit `Bank` and the contract test unchanged.
 - `Saw` and `Square`: PolyBLEP band-limited oscillators, 14-30 dB less aliasing than naive waveforms. All oscillators share one generic `Osc[S: Shape]` kernel.
 - Mojo code is compiled with `--fp-mode contract=off`. The default `contract=fast` fused multiply-adds differently in `Delay.tick` and `Delay.process`, so outputs differed by 1 ulp; fusion also varies with target CPU. Cost is mixed: OnePole -23%, Delay -14%, Biquad +17%.
+- Binary wheels: hatchling replaces uv_build, which supports only pure Python and had packed the in-tree `_core.so` into a `py3-none-any` wheel pointing at the build venv. `hatch_build.py` compiles the extension, bundles the three Mojo runtime libraries into `mdsp/_libs/`, and tags one `py3-none` wheel per platform; `make wheel` repairs it to `manylinux_2_35` (the runtime libraries need glibc 2.35) or macOS. The Mojo compiler is no longer a runtime dependency. Details: `docs/dev/packaging.md`.
+- Importing under free-threaded CPython raises `ImportError`; the extension segfaulted on import.
 - Design spike on composition models, `Variant` dispatch and GIL release: `docs/dev/spikes/2026-09-15-dispatch-gil/`.
 
 ### Removed
 
-- Template `add` / `greet` functions and the no-runtime-dependencies test. numpy and mojo are now runtime dependencies.
+- Template `add` / `greet` functions and the no-runtime-dependencies test. numpy is now a runtime dependency.
 
 ## [0.1.0] - 2026-09-15
 

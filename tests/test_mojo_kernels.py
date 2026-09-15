@@ -8,8 +8,9 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-# Same as MOJO_FLAGS in the Makefile.
-MOJO_FLAGS = ["--fp-mode", "contract=off"]
+sys.path.insert(0, str(ROOT))
+
+from hatch_build import MOJO_FLAGS
 
 
 @pytest.mark.parametrize(
