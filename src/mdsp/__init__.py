@@ -11,6 +11,7 @@ from mdsp._base import Chain, Generator, Processor
 from mdsp.buffer import AudioBuffer
 from mdsp.delay import Delay
 from mdsp.filters import Biquad, OnePole, Svf
+from mdsp.io import read_wav, write_wav
 from mdsp.ops import Gain
 from mdsp.oscillators import Phasor, Saw, Sine, Square
 
@@ -28,5 +29,7 @@ __all__ = [
     "Sine",
     "Square",
     "Svf",
+    "read_wav",
+    "write_wav",
 ]
 __version__ = "0.1.0"

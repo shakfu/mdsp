@@ -9,6 +9,7 @@
 
 ## Medium
 
+- Audio I/O gaps: no FLAC or other formats (point users at soundfile), no RF64/W64, and files are read whole rather than streamed.
 - `Delay` smooths its delay time; `feedback` and `mix` still step. Kernels are capped at `MAX_INPUTS` (4) ports.
 - Bundled runtime libraries keep their SONAMEs. Another extension built with a different Mojo version, loaded in the same process, would share whichever copy loads first.
 - Denormals: recursive filters decaying towards zero may hit subnormal slowdowns on x86. Measure before adding a fix.

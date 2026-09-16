@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Svf`: topology-preserving state-variable filter. Under cutoff jumps of 200 Hz to 12 kHz every 32 samples it peaks at 5.8 where `Biquad` reaches 180, and it is faster when modulated. `Biquad` keeps no modulation input for that reason.
 - Parameter changes ramp over 10 ms per sample, so output no longer depends on how callers split blocks, and `Delay` time changes glide instead of jumping. `reset()` ends the ramp. Constructor values apply at once.
 
+- `read_wav` and `write_wav`: PCM 8/16/24/32 and IEEE float 32/64, including WAVE_FORMAT_EXTENSIBLE, with no dependencies. Reading validates each chunk header against the bytes present, so a file claiming a 4 GB data chunk fails instead of asking for the memory. Writing defaults to float32; integer formats clip to [-1, 1). A 3-minute stereo file writes in 130 ms and reads in 51 ms as int16.
+
 ### Removed
 
 - Template `add` / `greet` functions and the no-runtime-dependencies test. numpy is now a runtime dependency.

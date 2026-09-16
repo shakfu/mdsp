@@ -7,9 +7,12 @@ All processing uses planar `[channels, frames]` float32 buffers. Each primitive 
 ```python
 import mdsp
 
-tone = mdsp.Phasor(freq=110.0).generate(48000)
-chain = mdsp.Chain(mdsp.Biquad("lowpass", cutoff=800.0, q=4.0), mdsp.Gain(0.5))
-out = chain.process(tone)  # AudioBuffer, 1 channel, 48000 frames
+buf = mdsp.read_wav("drums.wav")
+chain = mdsp.Chain(
+    mdsp.Svf("lowpass", cutoff=800.0, q=4.0, channels=buf.channels, sample_rate=buf.sample_rate),
+    mdsp.Gain(0.5, channels=buf.channels, sample_rate=buf.sample_rate),
+)
+mdsp.write_wav("out.wav", chain.process(buf), fmt="int24")
 ```
 
 ## Primitives
@@ -21,6 +24,9 @@ out = chain.process(tone)  # AudioBuffer, 1 channel, 48000 frames
 | Delays | `Delay` (fractional, feedback, mix) |
 | Ops | `Gain` |
 | Composition | `Chain` |
+| Files | `read_wav`, `write_wav` |
+
+`read_wav` and `write_wav` handle PCM 8/16/24/32 and float 32/64 WAV files with no dependencies. For other formats, read with [soundfile](https://pypi.org/project/soundfile/) and wrap the samples in an `AudioBuffer`.
 
 `Svf` is a topology-preserving state-variable filter; modulate it rather than `Biquad`, which overshoots when its coefficients change fast.
 
