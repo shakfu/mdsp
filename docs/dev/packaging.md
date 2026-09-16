@@ -33,7 +33,7 @@ Licence: `LicenseRef-MAX-Platform-Software-License` (from the `mojo-compiler` me
 | Python versions | One `_core.so` passed the suite on 3.10-3.14 | `py3-none` tag |
 | Free-threaded | 3.14t segfaults on import (exit 139) | Import guard in `mdsp._base` raises `ImportError` |
 | CPU baseline | `x86-64-v2` vs host (AVX2): Sine -21%, Delay -10%, others unchanged | Default `x86-64-v2`; `MDSP_TARGET_CPU` overrides |
-| Threads | Importing `mdsp` raises the process thread count from 1 to 32 | Unexplained; likely the AsyncRT CPU worker pool |
+| Threads | Mojo runtime init starts one idle worker per CPU in the affinity mask (16 here; any Mojo extension does this). 0 CPU idle, +7 MiB RSS. Fork, forkserver, spawn all work; the threads trigger Python's multi-threaded-fork `DeprecationWarning` | No pool-size setting found; `taskset` limits it. Default left unchanged |
 
 ## Verification status
 

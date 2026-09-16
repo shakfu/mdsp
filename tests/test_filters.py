@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from mdsp import AudioBuffer, Biquad, OnePole, Sine
+from mdsp import AudioBuffer, Biquad, OnePole, Sine, Svf
 
 SR = 48000.0
 
@@ -129,14 +129,18 @@ def test_reset_clears_state_keeps_params():
     assert (filt.mode, filt.cutoff, filt.q) == ("highpass", 700.0, 2.0)
 
 
-def test_parameter_change_takes_effect():
+def test_parameter_change_ramps_then_reset_snaps():
     x = _noise(1, 2000)
     filt = Biquad("lowpass", 500.0, sample_rate=SR)
     filt.mode = "highpass"
     filt.cutoff = 4000.0
     filt.q = 0.5
-    expected = Biquad("highpass", 4000.0, 0.5, sample_rate=SR).process(x).data
-    np.testing.assert_array_equal(filt.process(x).data, expected)
+    fresh = Biquad("highpass", 4000.0, 0.5, sample_rate=SR).process(x).data
+    # Changes ramp over 10 ms, so the start differs from a filter built that way.
+    ramped = filt.process(x).data
+    assert not np.array_equal(ramped[:, :100], fresh[:, :100])
+    filt.reset()
+    np.testing.assert_array_equal(filt.process(x).data, fresh)
 
 
 @pytest.mark.parametrize("cutoff", [0.0, -5.0, 24000.0, float("nan"), float("inf")])
@@ -158,3 +162,37 @@ def test_repr():
     assert (
         repr(OnePole(100.0)) == "OnePole(cutoff=100.0, sample_rate=48000.0, channels=1)"
     )
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_db"),
+    [("lowpass", -3.0103), ("highpass", -3.0103), ("bandpass", 0.0)],
+)
+def test_svf_gain_at_cutoff(mode, expected_db):
+    assert _gain_db_at(Svf(mode, 1000.0, sample_rate=SR), 1000.0) == pytest.approx(
+        expected_db, abs=0.05
+    )
+
+
+def test_svf_notch_rejects_centre():
+    assert _gain_db_at(Svf("notch", 1000.0, 1.0, sample_rate=SR), 1000.0) < -40
+
+
+def test_svf_dc_gains():
+    ones = AudioBuffer(np.ones(48000), SR)
+    assert Svf("lowpass", 200.0, sample_rate=SR).process(ones).data[
+        0, -1
+    ] == pytest.approx(1.0, abs=1e-5)
+    assert Svf("highpass", 200.0, sample_rate=SR).process(ones).data[
+        0, -1
+    ] == pytest.approx(0.0, abs=1e-5)
+
+
+def test_svf_stays_bounded_under_fast_modulation_where_biquad_does_not():
+    frames = 48000
+    x = _noise(1, frames)
+    jumps = AudioBuffer(
+        np.where((np.arange(frames) // 32) % 2 == 0, 200.0, 12000.0), SR
+    )
+    svf = Svf("lowpass", 200.0, 8.0, sample_rate=SR).process(x, cutoff=jumps).data
+    assert np.abs(svf).max() < 10  # measured ~5.8; the biquad form reaches ~180

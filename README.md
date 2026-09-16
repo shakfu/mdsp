@@ -17,12 +17,28 @@ out = chain.process(tone)  # AudioBuffer, 1 channel, 48000 frames
 | Kind | Classes |
 |-|-|
 | Generators | `Phasor`, `Sine`, `Saw`, `Square` (PolyBLEP band-limited) |
-| Filters | `OnePole`, `Biquad` (lowpass, highpass, bandpass, notch) |
+| Filters | `OnePole`, `Biquad`, `Svf` (lowpass, highpass, bandpass, notch) |
 | Delays | `Delay` (fractional, feedback, mix) |
 | Ops | `Gain` |
 | Composition | `Chain` |
 
+`Svf` is a topology-preserving state-variable filter; modulate it rather than `Biquad`, which overshoots when its coefficients change fast.
+
+## Modulation
+
+A unit's `inputs` lists the parameters that accept a buffer instead of a fixed value. Pass one by name; it must match the audio in sample rate, channels and frames.
+
+```python
+lfo = mdsp.Sine(0.5).generate(48000)
+cutoff = mdsp.AudioBuffer(2000 + 1500 * lfo.data, 48000)
+swept = mdsp.Svf("lowpass", q=4.0).process(tone, cutoff=cutoff)
+```
+
+Parameter changes ramp over 10 ms, so they do not click. `reset()` applies the target at once.
+
 Units are stateful: state carries across `process` / `generate` calls until `reset()`. An instance is not thread-safe; separate instances run in parallel threads.
+
+Importing `mdsp` starts the Mojo runtime's idle worker pool: one thread per CPU in the process affinity mask. Start Python under `taskset` to limit it.
 
 ## Install
 

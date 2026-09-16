@@ -151,3 +151,20 @@ def test_free_threaded_interpreter_is_rejected():
     _check_interpreter(False)
     with pytest.raises(ImportError, match="free-threaded"):
         _check_interpreter(True)
+
+
+def _fork_work(seed: int) -> float:
+    x = AudioBuffer(np.random.default_rng(seed).uniform(-1, 1, (2, 4800)), SR)
+    chain = Biquad(channels=2).process(x)
+    return float(np.abs(Delay(0.01, 0.5, channels=2).process(chain).data).sum())
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="fork start method is Linux-only")
+@pytest.mark.filterwarnings("ignore:This process .* is multi-threaded")
+def test_kernels_work_in_forked_children():
+    # The Mojo runtime's worker threads do not survive fork(); kernels must not need them.
+    import multiprocessing
+
+    expected = [_fork_work(s) for s in range(4)]
+    with multiprocessing.get_context("fork").Pool(2) as pool:
+        assert pool.map_async(_fork_work, range(4)).get(timeout=60) == expected

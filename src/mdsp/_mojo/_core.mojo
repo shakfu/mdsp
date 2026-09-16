@@ -1,7 +1,8 @@
 """Python extension module `mdsp._core`.
 
 Each kernel is exposed as `Bank[Kernel]`: one kernel instance per channel.
-Buffers cross as addresses of planar `[channels, frames]` float32 arrays.
+Buffers cross as addresses of planar `[channels, frames]` float32 arrays:
+the audio input, the output, and one optional buffer per modulation input.
 `mdsp._base` validates dtype, layout and shape before passing an address;
 nothing here can check them.
 """
@@ -12,16 +13,19 @@ from std.python.bindings import PythonModuleBuilder
 from std.sys import size_of
 
 from dsp import (
+    MAX_INPUTS,
     Biquad,
     Delay,
     Gain,
     OnePole,
     Phasor,
+    Ports,
     Processor,
     SamplePtr,
     Saw,
     Sine,
     Square,
+    Svf,
 )
 
 
@@ -56,6 +60,13 @@ struct Bank[P: Processor](Movable, Writable):
         return names
 
     @staticmethod
+    def input_names(self_ptr: Pointer[Self, MutAnyOrigin]) raises -> PythonObject:
+        var names = Python.list()
+        for name in Self.P.input_names():
+            names.append(PythonObject(name))
+        return names
+
+    @staticmethod
     def set(
         self_ptr: Pointer[Self, MutAnyOrigin], param: PythonObject, value: PythonObject
     ) raises -> PythonObject:
@@ -77,21 +88,35 @@ struct Bank[P: Processor](Movable, Writable):
         src: PythonObject,
         dst: PythonObject,
         frames: PythonObject,
+        mods: PythonObject,
     ) raises -> PythonObject:
-        """Process `len(units)` planar channels of `frames` samples each."""
+        """Process `len(units)` planar channels of `frames` samples each.
+
+        `mods` holds one address per modulation input, in `input_names()` order
+        after the audio input; 0 means unconnected.
+        """
         var src_addr = Int(py=src)
         var dst_addr = Int(py=dst)
         var n = Int(py=frames)
         var stride = n * size_of[Float32]()
+        var mod_addrs = InlineArray[Int, MAX_INPUTS](fill=0)
+        var num_mods = Int(py=len(mods))
+        if num_mods > MAX_INPUTS - 1:
+            raise Error("too many modulation inputs")
+        for k in range(num_mods):
+            mod_addrs[k + 1] = Int(py=mods[k])
+        var ports = InlineArray[Int, MAX_INPUTS](fill=0)
+        var ports_ptr = Ports(unsafe_from_address=Int(Pointer(to=ports)))
         ref units = self_ptr[].units
         # No PythonObject may be touched while the GIL is released.
         ref cpython = Python().cpython()
         var thread_state = cpython.PyEval_SaveThread()
         for c in range(len(units)):
+            ports[0] = src_addr + c * stride
+            for k in range(1, num_mods + 1):
+                ports[k] = mod_addrs[k] + c * stride if mod_addrs[k] != 0 else 0
             units[c].process(
-                SamplePtr(unsafe_from_address=src_addr + c * stride),
-                SamplePtr(unsafe_from_address=dst_addr + c * stride),
-                n,
+                ports_ptr, SamplePtr(unsafe_from_address=dst_addr + c * stride), n
             )
         cpython.PyEval_RestoreThread(thread_state)
         return PythonObject(None)
@@ -102,6 +127,7 @@ def _add_bank[P: Processor](mut m: PythonModuleBuilder, name: StaticString) rais
         m.add_type[Bank[P]](name)
         .def_py_init[Bank[P].py_init]()
         .def_method[Bank[P].param_names]("param_names")
+        .def_method[Bank[P].input_names]("input_names")
         .def_method[Bank[P].set]("set")
         .def_method[Bank[P].reset]("reset")
         .def_method[Bank[P].process]("process")
@@ -132,6 +158,7 @@ def PyInit__core() abi("C") -> PythonObject:
         _add_bank[Square](m, "mdsp._core.Square")
         _add_bank[OnePole](m, "mdsp._core.OnePole")
         _add_bank[Biquad](m, "mdsp._core.Biquad")
+        _add_bank[Svf](m, "mdsp._core.Svf")
         _add_bank[Gain](m, "mdsp._core.Gain")
         _add_bank[Delay](m, "mdsp._core.Delay")
         var module = m.finalize()

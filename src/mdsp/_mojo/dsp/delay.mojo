@@ -1,6 +1,7 @@
 from std.math import ceil, clamp, floor
 
-from dsp.processor import Processor, SamplePtr
+from dsp.processor import Ports, Processor, SamplePtr, audio_input
+from dsp.smooth import Smoothed
 
 comptime MAX_DELAY_SECONDS = 600.0
 
@@ -11,6 +12,10 @@ struct Delay(Processor, Writable):
     `y = (1 - mix) * x + mix * d`, where `d` is the line read `delay` seconds
     back, and `x + feedback * d` is written. The minimum delay is one sample.
     Setting `max_delay` reallocates and clears the line.
+
+    `delay` ramps over 10 ms, which shifts pitch while it moves, as a tape or
+    bucket-brigade delay does. `feedback` and `mix` are not smoothed.
+    Ports: audio only.
     """
 
     comptime MAX_DELAY = 0
@@ -22,7 +27,7 @@ struct Delay(Processor, Writable):
     var line: List[Float32]
     var write: Int
     var max_delay: Float64
-    var delay_samples: Float64
+    var delay_samples: Smoothed
     var feedback: Float32
     var mix: Float32
 
@@ -31,7 +36,7 @@ struct Delay(Processor, Writable):
         self.line = List[Float32]()
         self.write = 0
         self.max_delay = 0.0
-        self.delay_samples = 1.0
+        self.delay_samples = Smoothed(1.0, sample_rate)
         self.feedback = 0.0
         self.mix = 1.0
         self.set(Self.MAX_DELAY, 1.0)
@@ -40,6 +45,10 @@ struct Delay(Processor, Writable):
     def param_names() -> List[String]:
         return ["max_delay", "delay", "feedback", "mix"]
 
+    @staticmethod
+    def input_names() -> List[String]:
+        return ["in"]
+
     def set(mut self, param: Int, value: Float64):
         if param == Self.MAX_DELAY:
             self.max_delay = clamp(value, 0.0, MAX_DELAY_SECONDS)
@@ -47,9 +56,10 @@ struct Delay(Processor, Writable):
             var size = Int(ceil(self.max_delay * self.sample_rate)) + 2
             self.line = List[Float32](length=size, fill=0.0)
             self.write = 0
-            self.delay_samples = self._clamp_delay(self.delay_samples)
+            self.delay_samples.set(self._clamp_delay(self.delay_samples.target))
+            self.delay_samples.snap()
         elif param == Self.DELAY:
-            self.delay_samples = self._clamp_delay(value * self.sample_rate)
+            self.delay_samples.set(self._clamp_delay(value * self.sample_rate))
         elif param == Self.FEEDBACK:
             self.feedback = Float32(clamp(value, -1.0, 1.0))
         elif param == Self.MIX:
@@ -62,29 +72,42 @@ struct Delay(Processor, Writable):
         for ref s in self.line:
             s = 0.0
         self.write = 0
+        self.delay_samples.snap()
 
     @always_inline
     def tick(mut self, x: Float32) -> Float32:
         var n = len(self.line)
         var base = self.line.unsafe_ptr()
-        var y = _step(base, n, self.write, self.delay_samples, self.feedback, self.mix, x)
+        var delay = self.delay_samples.next()
+        var y = _step(base, n, self.write, delay, self.feedback, self.mix, x)
         self.write += 1
         if self.write == n:
             self.write = 0
         return y
 
-    def process(mut self, src: SamplePtr, dst: SamplePtr, n: Int):
+    def process(mut self, ins: Ports, dst: SamplePtr, n: Int):
+        var src = audio_input(ins, dst)
         var size = len(self.line)
         var base = self.line.unsafe_ptr()
         var w = self.write
-        var d = self.delay_samples
         var fb = self.feedback
         var mix = self.mix
-        for i in range(n):
+        var i = 0
+        var ramping = self.delay_samples.ramping(n)
+        while i < ramping:
+            var d = self.delay_samples.next()
             dst[unsafe_offset=i] = _step(base, size, w, d, fb, mix, src[unsafe_offset=i])
             w += 1
             if w == size:
                 w = 0
+            i += 1
+        var d = self.delay_samples.value
+        while i < n:
+            dst[unsafe_offset=i] = _step(base, size, w, d, fb, mix, src[unsafe_offset=i])
+            w += 1
+            if w == size:
+                w = 0
+            i += 1
         self.write = w
 
 

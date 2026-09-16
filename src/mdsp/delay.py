@@ -32,7 +32,8 @@ class Delay(Processor):
     """Delay line with linear interpolation, feedback and dry/wet mix.
 
     Output is ``(1 - mix) * x + mix * d``, where ``d`` is the signal *delay*
-    seconds ago; ``x + feedback * d`` is written into the line.
+    seconds ago; ``x + feedback * d`` is written into the line. Changing
+    *delay* ramps over 10 ms, shifting pitch while it moves.
 
     Args:
         delay: Delay in seconds, from one sample up to *max_delay*.
@@ -73,6 +74,7 @@ class Delay(Processor):
         self.delay = delay
         self.feedback = feedback
         self.mix = mix
+        self._impl.reset()  # starting values take effect at once
 
     @property
     def max_delay(self) -> float:

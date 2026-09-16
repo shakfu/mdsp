@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Importing under free-threaded CPython raises `ImportError`; the extension segfaulted on import.
 - Design spike on composition models, `Variant` dispatch and GIL release: `docs/dev/spikes/2026-09-15-dispatch-gil/`.
 
+- Kernels take input ports instead of one buffer: port 0 is audio, the rest modulate the parameter of the same name. `Processor.process(buf, **mods)` and `Generator.generate(frames, **mods)` accept them; `inputs` lists what a unit takes. Available: `freq` on every oscillator, `gain`, `cutoff` on `OnePole` and `Svf`.
+- `Svf`: topology-preserving state-variable filter. Under cutoff jumps of 200 Hz to 12 kHz every 32 samples it peaks at 5.8 where `Biquad` reaches 180, and it is faster when modulated. `Biquad` keeps no modulation input for that reason.
+- Parameter changes ramp over 10 ms per sample, so output no longer depends on how callers split blocks, and `Delay` time changes glide instead of jumping. `reset()` ends the ramp. Constructor values apply at once.
+
 ### Removed
 
 - Template `add` / `greet` functions and the no-runtime-dependencies test. numpy is now a runtime dependency.

@@ -5,17 +5,21 @@ Run: mojo run -I src/mdsp/_mojo tests/mojo/test_kernels.mojo
 
 from std.testing import TestSuite, assert_equal, assert_true
 
+from dsp.filters import NOTCH
 from dsp import (
+    MAX_INPUTS,
     Biquad,
     Delay,
     Gain,
     OnePole,
     Phasor,
+    Ports,
     Processor,
     SamplePtr,
     Saw,
     Sine,
     Square,
+    Svf,
 )
 from dsp.delay import read_position
 
@@ -37,7 +41,16 @@ def _ptr(mut buf: List[Float32], offset: Int) -> SamplePtr:
     return SamplePtr(unsafe_from_address=Int(buf.unsafe_ptr()) + offset * 4)
 
 
-def _check_contract[P: Processor](unit: P) raises:
+def _run[P: Processor](mut unit: P, src: Int, dst: SamplePtr, n: Int, mod: Int = 0):
+    """Process with the audio input at `src` and an optional modulation input."""
+    var ports = InlineArray[Int, MAX_INPUTS](fill=0)
+    ports[0] = src
+    ports[1] = mod
+    unit.process(Ports(unsafe_from_address=Int(Pointer(to=ports))), dst, n)
+
+
+def _check_contract[P: Processor](var unit: P) raises:
+    unit.reset()  # start settled: `set` ramps, `reset` snaps
     var x = _input()
 
     var ticked = List[Float32](length=N, fill=0.0)
@@ -48,7 +61,7 @@ def _check_contract[P: Processor](unit: P) raises:
     # Out-of-place, one block.
     var block = List[Float32](length=N, fill=0.0)
     var b = unit.copy()
-    b.process(_ptr(x, 0), _ptr(block, 0), N)
+    _run(b, Int(_ptr(x, 0)), _ptr(block, 0), N)
 
     # In-place, irregular block sizes.
     var inplace = x.copy()
@@ -58,7 +71,7 @@ def _check_contract[P: Processor](unit: P) raises:
     var k = 0
     while pos < N:
         var n = min(sizes[k % len(sizes)], N - pos)
-        c.process(_ptr(inplace, pos), _ptr(inplace, pos), n)
+        _run(c, Int(_ptr(inplace, pos)), _ptr(inplace, pos), n)
         pos += n
         k += 1
 
@@ -69,7 +82,7 @@ def _check_contract[P: Processor](unit: P) raises:
     # reset() restores the post-construction output.
     b.reset()
     var again = List[Float32](length=N, fill=0.0)
-    b.process(_ptr(x, 0), _ptr(again, 0), N)
+    _run(b, Int(_ptr(x, 0)), _ptr(again, 0), N)
     for i in range(N):
         assert_equal(again[i], ticked[i], String("reset did not clear state at ", i))
 
@@ -77,13 +90,13 @@ def _check_contract[P: Processor](unit: P) raises:
 def test_phasor() raises:
     var u = Phasor(SR)
     u.set(Phasor.FREQ, 441.3)
-    _check_contract(u)
+    _check_contract(u^)
 
 
 def test_sine() raises:
     var u = Sine(SR)
     u.set(Sine.FREQ, -997.0)
-    _check_contract(u)
+    _check_contract(u^)
 
 
 def test_saw_and_square_both_directions() raises:
@@ -91,16 +104,16 @@ def test_saw_and_square_both_directions() raises:
         var freq = 1733.3 if sign == 0 else -1733.3
         var saw = Saw(SR)
         saw.set(Saw.FREQ, freq)
-        _check_contract(saw)
+        _check_contract(saw^)
         var square = Square(SR)
         square.set(Square.FREQ, freq)
-        _check_contract(square)
+        _check_contract(square^)
 
 
 def test_onepole() raises:
     var u = OnePole(SR)
     u.set(OnePole.CUTOFF, 2500.0)
-    _check_contract(u)
+    _check_contract(u^)
 
 
 def test_biquad_modes() raises:
@@ -109,13 +122,13 @@ def test_biquad_modes() raises:
         u.set(Biquad.MODE, Float64(mode))
         u.set(Biquad.CUTOFF, 3000.0)
         u.set(Biquad.Q, 2.0)
-        _check_contract(u)
+        _check_contract(u^)
 
 
 def test_gain() raises:
     var u = Gain(SR)
     u.set(Gain.GAIN, -0.25)
-    _check_contract(u)
+    _check_contract(u^)
 
 
 def test_delay_fractional_with_feedback() raises:
@@ -124,7 +137,7 @@ def test_delay_fractional_with_feedback() raises:
     u.set(Delay.DELAY, 37.25 / SR)
     u.set(Delay.FEEDBACK, -0.7)
     u.set(Delay.MIX, 0.6)
-    _check_contract(u)
+    _check_contract(u^)
 
 
 def test_delay_wraps_short_line() raises:
@@ -133,7 +146,7 @@ def test_delay_wraps_short_line() raises:
     u.set(Delay.MAX_DELAY, 0.5 / SR)
     u.set(Delay.DELAY, 1.0e9)
     u.set(Delay.FEEDBACK, 0.5)
-    _check_contract(u)
+    _check_contract(u^)
 
 
 def test_delay_read_position_stays_below_size() raises:
@@ -158,15 +171,102 @@ def test_params_are_clamped() raises:
     u.set(Biquad.CUTOFF, 1.0e9)
     u.set(Biquad.Q, 0.0)
     u.set(Biquad.MODE, 42.0)
-    assert_equal(u.cutoff, 0.4999 * SR)
-    assert_equal(u.q, 1.0e-3)
-    assert_equal(u.mode, Biquad.NOTCH)
+    assert_equal(u.cutoff.target, 0.4999 * SR)
+    assert_equal(u.q.target, 1.0e-3)
+    assert_equal(u.mode, NOTCH)
     var d = Delay(SR)
     d.set(Delay.MAX_DELAY, 1.0e9)
     assert_equal(d.max_delay, 600.0)
     d.set(Delay.MAX_DELAY, 0.001)
     d.set(Delay.DELAY, 10.0)
-    assert_equal(d.delay_samples, Float64(len(d.line) - 2))
+    assert_equal(d.delay_samples.target, Float64(len(d.line) - 2))
+
+
+def _process_split[P: Processor](var unit: P, mut x: List[Float32], sizes: List[Int]) -> List[Float32]:
+    var out = List[Float32](length=len(x), fill=0.0)
+    var pos = 0
+    var k = 0
+    while pos < len(x):
+        var n = min(sizes[k % len(sizes)], len(x) - pos)
+        _run(unit, Int(_ptr(x, pos)), _ptr(out, pos), n)
+        pos += n
+        k += 1
+    return out^
+
+
+def test_svf_modes() raises:
+    for mode in range(4):
+        var u = Svf(SR)
+        u.set(Svf.MODE, Float64(mode))
+        u.set(Svf.CUTOFF, 2200.0)
+        u.set(Svf.Q, 3.0)
+        u.reset()
+        _check_contract(u^)
+
+
+def test_modulation_input_matches_constant_parameter() raises:
+    var x = _input()
+    var cutoff = List[Float32](length=N, fill=1234.0)
+
+    var svf_const = Svf(SR)
+    svf_const.set(Svf.CUTOFF, 1234.0)
+    svf_const.reset()
+    var svf_mod = Svf(SR)
+    var a = List[Float32](length=N, fill=0.0)
+    var b = List[Float32](length=N, fill=0.0)
+    _run(svf_const, Int(_ptr(x, 0)), _ptr(a, 0), N)
+    _run(svf_mod, Int(_ptr(x, 0)), _ptr(b, 0), N, Int(_ptr(cutoff, 0)))
+    for i in range(N):
+        assert_equal(b[i], a[i], String("svf cutoff modulation differs at ", i))
+
+    var lp_const = OnePole(SR)
+    lp_const.set(OnePole.CUTOFF, 1234.0)
+    lp_const.reset()
+    var lp_mod = OnePole(SR)
+    var c = List[Float32](length=N, fill=0.0)
+    var d = List[Float32](length=N, fill=0.0)
+    _run(lp_const, Int(_ptr(x, 0)), _ptr(c, 0), N)
+    _run(lp_mod, Int(_ptr(x, 0)), _ptr(d, 0), N, Int(_ptr(cutoff, 0)))
+    for i in range(N):
+        assert_equal(d[i], c[i], String("one-pole cutoff modulation differs at ", i))
+
+
+def test_smoothing_is_block_size_independent() raises:
+    var x = _input()
+    var whole: List[Int] = [N]
+    var irregular: List[Int] = [1, 7, 64, 3, 513, 1024]
+
+    var gain = Gain(SR)
+    gain.reset()
+    gain.set(Gain.GAIN, 0.25)  # ramps from 1.0
+    var svf = Svf(SR)
+    svf.reset()
+    svf.set(Svf.CUTOFF, 6000.0)
+
+    var g1 = _process_split(gain.copy(), x, whole)
+    var g2 = _process_split(gain.copy(), x, irregular)
+    var s1 = _process_split(svf.copy(), x, whole)
+    var s2 = _process_split(svf.copy(), x, irregular)
+    for i in range(N):
+        assert_equal(g2[i], g1[i], String("gain ramp depends on block size at ", i))
+        assert_equal(s2[i], s1[i], String("cutoff ramp depends on block size at ", i))
+
+
+def test_reset_ends_the_ramp() raises:
+    var x = _input()
+    var ramped = Gain(SR)
+    ramped.reset()
+    ramped.set(Gain.GAIN, 0.25)
+    ramped.reset()
+    var direct = Gain(SR)
+    direct.set(Gain.GAIN, 0.25)
+    direct.reset()
+    var a = List[Float32](length=N, fill=0.0)
+    var b = List[Float32](length=N, fill=0.0)
+    _run(ramped, Int(_ptr(x, 0)), _ptr(a, 0), N)
+    _run(direct, Int(_ptr(x, 0)), _ptr(b, 0), N)
+    for i in range(N):
+        assert_equal(a[i], b[i], String("reset did not end the ramp at ", i))
 
 
 def main() raises:

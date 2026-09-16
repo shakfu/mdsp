@@ -1,4 +1,8 @@
-"""Oscillators. All start at phase 0; negative *freq* runs the phase backwards."""
+"""Oscillators.
+
+All start at phase 0; negative *freq* runs the phase backwards. Every
+oscillator accepts a ``freq`` modulation input in Hz.
+"""
 
 from __future__ import annotations
 
@@ -19,8 +23,7 @@ class _Oscillator(Generator):
     def __init__(
         self, freq: float = 440.0, *, sample_rate: float = 48000.0, channels: int = 1
     ) -> None:
-        super().__init__(sample_rate, channels)
-        self.freq = freq
+        super().__init__(sample_rate, channels, freq=freq)
 
 
 class Phasor(_Oscillator):

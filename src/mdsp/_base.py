@@ -88,7 +88,9 @@ def below_nyquist(unit: _Unit, value: float) -> None:
 class _Unit:
     _kernel: ClassVar[type[_core._Bank]]
 
-    def __init__(self, sample_rate: float, channels: int) -> None:
+    def __init__(
+        self, sample_rate: float, channels: int, **params: float | str
+    ) -> None:
         sr = float(sample_rate)
         if not (math.isfinite(sr) and sr > 0):
             raise ValueError(f"sample_rate must be positive and finite, got {sr}")
@@ -98,6 +100,12 @@ class _Unit:
         self._channels = channels
         self._impl = type(self)._kernel(sr, channels)
         self._params: dict[str, float] = {}
+        #: Names of the modulation inputs, in the order `_core` expects them.
+        self._mod_names: tuple[str, ...] = tuple(self._impl.input_names()[1:])
+        for name, value in params.items():
+            setattr(self, name, value)
+        # Parameter changes ramp over 10 ms; starting values take effect at once.
+        self._impl.reset()
 
     @property
     def sample_rate(self) -> float:
@@ -107,15 +115,46 @@ class _Unit:
     def channels(self) -> int:
         return self._channels
 
+    @property
+    def inputs(self) -> tuple[str, ...]:
+        """Names of the modulation inputs this unit accepts."""
+        return self._mod_names
+
     def reset(self) -> None:
         """Clear internal state. Parameters are kept."""
         self._impl.reset()
 
-    def _run(self, src: NDArray[np.float32], dst: NDArray[np.float32]) -> None:
+    def _run(
+        self,
+        src: NDArray[np.float32],
+        dst: NDArray[np.float32],
+        mods: dict[str, AudioBuffer] | None = None,
+    ) -> None:
+        """Validate every buffer, then hand `_core` their addresses."""
+        mods = mods or {}
+        unknown = set(mods) - set(self._mod_names)
+        if unknown:
+            raise TypeError(
+                f"{type(self).__name__} has no modulation input(s) "
+                f"{sorted(unknown)}; expected {list(self._mod_names)}"
+            )
+        buffers = [src, dst]
+        addresses = []
+        for name in self._mod_names:
+            buf = mods.get(name)
+            if buf is None:
+                addresses.append(0)
+                continue
+            if buf.sample_rate != self._sample_rate:
+                raise ValueError(
+                    f"{name} sample_rate {buf.sample_rate} != {self._sample_rate}"
+                )
+            buffers.append(buf.data)
+            addresses.append(buf.data.ctypes.data)
         # Re-checked on every call: AudioBuffer.data is a mutable ndarray whose
         # shape and dtype can be reassigned in place.
         shape = (self._channels, dst.shape[-1])
-        for arr in (src, dst):
+        for arr in buffers:
             if (
                 arr.dtype != np.float32
                 or not arr.flags.c_contiguous
@@ -127,7 +166,7 @@ class _Unit:
                 )
         if not dst.flags.writeable:
             raise ValueError("output array is read-only")
-        self._impl.process(src.ctypes.data, dst.ctypes.data, shape[1])
+        self._impl.process(src.ctypes.data, dst.ctypes.data, shape[1], addresses)
 
     def __repr__(self) -> str:
         params = "".join(f"{k}={v!r}, " for k, v in self._params.items())
@@ -140,11 +179,16 @@ class _Unit:
 class Processor(_Unit):
     """A unit that transforms a buffer."""
 
-    def process(self, buf: AudioBuffer) -> AudioBuffer:
+    def process(self, buf: AudioBuffer, **mods: AudioBuffer) -> AudioBuffer:
         """Return the processed buffer. State carries over to the next call.
 
+        Keyword arguments name modulation inputs (see ``inputs``). A modulation
+        buffer must match *buf* in sample rate, channels and frames, and it
+        replaces that parameter for every sample.
+
         Raises:
-            ValueError: If *buf* has a different sample rate or channel count.
+            ValueError: If a buffer has a different sample rate or shape.
+            TypeError: If a keyword does not name a modulation input.
         """
         if buf.sample_rate != self._sample_rate:
             raise ValueError(
@@ -155,19 +199,22 @@ class Processor(_Unit):
                 f"buffer has {buf.channels} channels, expected {self._channels}"
             )
         out = np.empty_like(buf.data)
-        self._run(buf.data, out)
+        self._run(buf.data, out, mods)
         return AudioBuffer(out, self._sample_rate, copy=False)
 
 
 class Generator(_Unit):
     """A unit that produces a buffer from its internal state."""
 
-    def generate(self, frames: int) -> AudioBuffer:
-        """Return the next *frames* samples."""
+    def generate(self, frames: int, **mods: AudioBuffer) -> AudioBuffer:
+        """Return the next *frames* samples.
+
+        Keyword arguments name modulation inputs, as in `Processor.process`.
+        """
         if isinstance(frames, bool) or not isinstance(frames, int) or frames < 0:
             raise ValueError(f"frames must be an int >= 0, got {frames!r}")
         out = np.empty((self._channels, frames), np.float32)
-        self._run(out, out)
+        self._run(out, out, mods)
         return AudioBuffer(out, self._sample_rate, copy=False)
 
 

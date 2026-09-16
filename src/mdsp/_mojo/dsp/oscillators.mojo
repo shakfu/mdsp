@@ -1,6 +1,6 @@
 from std.math import floor, pi, sin
 
-from dsp.processor import Processor, SamplePtr
+from dsp.processor import Ports, Processor, SamplePtr, input_address
 
 
 trait Shape:
@@ -13,7 +13,11 @@ trait Shape:
 
 
 struct Osc[S: Shape](Processor, Writable):
-    """Phase accumulator at `freq` Hz driving a `Shape`, starting at phase 0."""
+    """Phase accumulator at `freq` Hz driving a `Shape`, starting at phase 0.
+
+    Ports: audio (ignored), `freq` in Hz. Frequency is not smoothed: a new
+    frequency takes effect on the next sample.
+    """
 
     comptime FREQ = 0
 
@@ -30,6 +34,10 @@ struct Osc[S: Shape](Processor, Writable):
     def param_names() -> List[String]:
         return ["freq"]
 
+    @staticmethod
+    def input_names() -> List[String]:
+        return ["in", "freq"]
+
     def set(mut self, param: Int, value: Float64):
         if param == Self.FREQ:
             self.freq = value
@@ -45,13 +53,22 @@ struct Osc[S: Shape](Processor, Writable):
         self.phase -= floor(self.phase)
         return y
 
-    def process(mut self, src: SamplePtr, dst: SamplePtr, n: Int):
+    def process(mut self, ins: Ports, dst: SamplePtr, n: Int):
         var phase = self.phase
-        var inc = self.freq / self.sample_rate
-        for i in range(n):
-            dst[unsafe_offset=i] = Float32(Self.S.value(phase, inc))
-            phase += inc
-            phase -= floor(phase)
+        var freq_mod = input_address(ins, 1)
+        if freq_mod == 0:
+            var inc = self.freq / self.sample_rate
+            for i in range(n):
+                dst[unsafe_offset=i] = Float32(Self.S.value(phase, inc))
+                phase += inc
+                phase -= floor(phase)
+        else:
+            var freq = SamplePtr(unsafe_from_address=freq_mod)
+            for i in range(n):
+                var inc = Float64(freq[unsafe_offset=i]) / self.sample_rate
+                dst[unsafe_offset=i] = Float32(Self.S.value(phase, inc))
+                phase += inc
+                phase -= floor(phase)
         self.phase = phase
 
 
