@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 import sysconfig
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, ClassVar, Protocol, overload
 
 import numpy as np
@@ -35,7 +35,14 @@ except ImportError as exc:  # pragma: no cover
         "mdsp._core is not built. Run `make build` in the source tree."
     ) from exc
 
-__all__ = ["Chain", "Generator", "Param", "Processor", "SupportsProcess"]
+__all__ = [
+    "Chain",
+    "Generator",
+    "Param",
+    "Processor",
+    "SupportsProcess",
+    "check_planar",
+]
 
 
 class Param:
@@ -85,6 +92,22 @@ def below_nyquist(unit: _Unit, value: float) -> None:
         )
 
 
+def check_planar(
+    buffers: Sequence[NDArray[np.float32]], shape: tuple[int, int]
+) -> None:
+    """Every buffer must be C-contiguous float32 of *shape*.
+
+    Re-checked on every call: `AudioBuffer.data` is a mutable ndarray whose
+    shape and dtype can be reassigned in place.
+    """
+    for arr in buffers:
+        if arr.dtype != np.float32 or not arr.flags.c_contiguous or arr.shape != shape:
+            raise ValueError(
+                f"expected C-contiguous float32 array of shape {shape}, "
+                f"got {arr.dtype} {arr.shape}"
+            )
+
+
 class _Unit:
     _kernel: ClassVar[type[_core._Bank]]
 
@@ -124,10 +147,24 @@ class _Unit:
         """Clear internal state. Parameters are kept."""
         self._impl.reset()
 
+    def _check_buffer(
+        self, buf: AudioBuffer, name: str, frames: int | None = None
+    ) -> None:
+        if buf.sample_rate != self._sample_rate:
+            raise ValueError(
+                f"{name} sample_rate {buf.sample_rate} != {self._sample_rate}"
+            )
+        if buf.channels != self._channels:
+            raise ValueError(
+                f"{name} has {buf.channels} channels, expected {self._channels}"
+            )
+        if frames is not None and buf.frames != frames:
+            raise ValueError(f"{name} has {buf.frames} frames, expected {frames}")
+
     def _run(
         self,
-        src: NDArray[np.float32],
-        dst: NDArray[np.float32],
+        src: AudioBuffer,
+        dst: AudioBuffer,
         mods: dict[str, AudioBuffer] | None = None,
     ) -> None:
         """Validate every buffer, then hand `_core` their addresses."""
@@ -138,7 +175,7 @@ class _Unit:
                 f"{type(self).__name__} has no modulation input(s) "
                 f"{sorted(unknown)}; expected {list(self._mod_names)}"
             )
-        buffers = [src, dst]
+        buffers = [src.data, dst.data]
         addresses = []
         for name in self._mod_names:
             buf = mods.get(name)
@@ -150,23 +187,12 @@ class _Unit:
                     f"{name} sample_rate {buf.sample_rate} != {self._sample_rate}"
                 )
             buffers.append(buf.data)
-            addresses.append(buf.data.ctypes.data)
-        # Re-checked on every call: AudioBuffer.data is a mutable ndarray whose
-        # shape and dtype can be reassigned in place.
-        shape = (self._channels, dst.shape[-1])
-        for arr in buffers:
-            if (
-                arr.dtype != np.float32
-                or not arr.flags.c_contiguous
-                or arr.shape != shape
-            ):
-                raise ValueError(
-                    f"expected C-contiguous float32 array of shape {shape}, "
-                    f"got {arr.dtype} {arr.shape}"
-                )
-        if not dst.flags.writeable:
+            addresses.append(buf.address)
+        frames = dst.frames
+        check_planar(buffers, (self._channels, frames))
+        if not dst.data.flags.writeable:
             raise ValueError("output array is read-only")
-        self._impl.process(src.ctypes.data, dst.ctypes.data, shape[1], addresses)
+        self._impl.process(src.address, dst.address, frames, addresses)
 
     def __repr__(self) -> str:
         params = "".join(f"{k}={v!r}, " for k, v in self._params.items())
@@ -179,47 +205,64 @@ class _Unit:
 class Processor(_Unit):
     """A unit that transforms a buffer."""
 
-    def process(self, buf: AudioBuffer, **mods: AudioBuffer) -> AudioBuffer:
+    def process(
+        self, buf: AudioBuffer, out: AudioBuffer | None = None, **mods: AudioBuffer
+    ) -> AudioBuffer:
         """Return the processed buffer. State carries over to the next call.
 
-        Keyword arguments name modulation inputs (see ``inputs``). A modulation
-        buffer must match *buf* in sample rate, channels and frames, and it
-        replaces that parameter for every sample.
+        Args:
+            out: Write here instead of allocating, and return it. It must match
+                *buf* in sample rate, channels and frames. Passing *buf* itself
+                processes in place.
+            mods: Modulation inputs by name (see ``inputs``). Each buffer must
+                match *buf*, and replaces that parameter for every sample.
 
         Raises:
             ValueError: If a buffer has a different sample rate or shape.
             TypeError: If a keyword does not name a modulation input.
         """
-        if buf.sample_rate != self._sample_rate:
-            raise ValueError(
-                f"buffer sample_rate {buf.sample_rate} != {self._sample_rate}"
-            )
-        if buf.channels != self._channels:
-            raise ValueError(
-                f"buffer has {buf.channels} channels, expected {self._channels}"
-            )
-        out = np.empty_like(buf.data)
-        self._run(buf.data, out, mods)
-        return AudioBuffer(out, self._sample_rate, copy=False)
+        self._check_buffer(buf, "buffer")
+        if out is None:
+            result = AudioBuffer(np.empty_like(buf.data), self._sample_rate, copy=False)
+        else:
+            self._check_buffer(out, "out")
+            result = out
+        self._run(buf, result, mods)
+        return result
 
 
 class Generator(_Unit):
     """A unit that produces a buffer from its internal state."""
 
-    def generate(self, frames: int, **mods: AudioBuffer) -> AudioBuffer:
+    def generate(
+        self, frames: int, out: AudioBuffer | None = None, **mods: AudioBuffer
+    ) -> AudioBuffer:
         """Return the next *frames* samples.
 
-        Keyword arguments name modulation inputs, as in `Processor.process`.
+        Args:
+            out: Write here instead of allocating, and return it. It must hold
+                *frames* frames at this unit's sample rate and channel count.
+            mods: Modulation inputs by name, as in `Processor.process`.
         """
         if isinstance(frames, bool) or not isinstance(frames, int) or frames < 0:
             raise ValueError(f"frames must be an int >= 0, got {frames!r}")
-        out = np.empty((self._channels, frames), np.float32)
-        self._run(out, out, mods)
-        return AudioBuffer(out, self._sample_rate, copy=False)
+        if out is None:
+            result = AudioBuffer(
+                np.empty((self._channels, frames), np.float32),
+                self._sample_rate,
+                copy=False,
+            )
+        else:
+            self._check_buffer(out, "out", frames)
+            result = out
+        self._run(result, result, mods)
+        return result
 
 
 class SupportsProcess(Protocol):
-    def process(self, buf: AudioBuffer) -> AudioBuffer: ...
+    def process(
+        self, buf: AudioBuffer, out: AudioBuffer | None = None
+    ) -> AudioBuffer: ...
     def reset(self) -> None: ...
 
 
@@ -234,10 +277,34 @@ class Chain:
 
     def __init__(self, *processors: SupportsProcess) -> None:
         self.processors = list(processors)
+        self._scratch: AudioBuffer | None = None
 
-    def process(self, buf: AudioBuffer) -> AudioBuffer:
-        for p in self.processors:
-            buf = p.process(buf)
+    def process(self, buf: AudioBuffer, out: AudioBuffer | None = None) -> AudioBuffer:
+        """Apply every processor in turn.
+
+        Args:
+            out: Write the result here instead of allocating. Stages alternate
+                between *out* and one reused scratch buffer, so a steady stream
+                of same-sized blocks allocates nothing after the first call.
+        """
+        if out is None:
+            for p in self.processors:
+                buf = p.process(buf)
+            return buf
+        stages = len(self.processors)
+        if stages == 0:
+            np.copyto(out.data, buf.data)
+            return out
+        if stages > 1 and (
+            self._scratch is None
+            or self._scratch.data.shape != buf.data.shape
+            or self._scratch.sample_rate != buf.sample_rate
+        ):
+            self._scratch = AudioBuffer.zeros(buf.channels, buf.frames, buf.sample_rate)
+        for index, p in enumerate(self.processors):
+            # The last stage lands in `out`; earlier ones alternate with scratch.
+            target = out if (stages - 1 - index) % 2 == 0 else self._scratch
+            buf = p.process(buf, target)
         return buf
 
     def reset(self) -> None:

@@ -7,6 +7,9 @@ comptime LOWPASS = 0
 comptime HIGHPASS = 1
 comptime BANDPASS = 2
 comptime NOTCH = 3
+comptime LOWSHELF = 4
+comptime HIGHSHELF = 5
+comptime PEAKING = 6
 
 
 def _clamp_freq(hz: Float64, sample_rate: Float64) -> Float64:
@@ -109,11 +112,13 @@ struct Biquad(Processor, Writable):
     comptime MODE = 0
     comptime CUTOFF = 1
     comptime Q = 2
+    comptime GAIN = 3
 
     var sample_rate: Float64
     var mode: Int
     var cutoff: Smoothed
     var q: Smoothed
+    var gain: Float64  # dB, used by the shelf and peaking modes
     var cutoff_for: Float64
     var q_for: Float64
     var b0: Float64
@@ -129,6 +134,7 @@ struct Biquad(Processor, Writable):
         self.mode = LOWPASS
         self.cutoff = Smoothed(_clamp_freq(1000.0, sample_rate), sample_rate)
         self.q = Smoothed(0.7071067811865476, sample_rate)
+        self.gain = 0.0
         self.cutoff_for = 0.0
         self.q_for = 0.0
         self.b0 = 1.0
@@ -142,7 +148,7 @@ struct Biquad(Processor, Writable):
 
     @staticmethod
     def param_names() -> List[String]:
-        return ["mode", "cutoff", "q"]
+        return ["mode", "cutoff", "q", "gain"]
 
     @staticmethod
     def input_names() -> List[String]:
@@ -150,7 +156,10 @@ struct Biquad(Processor, Writable):
 
     def set(mut self, param: Int, value: Float64):
         if param == Self.MODE:
-            self.mode = Int(clamp(value, 0.0, 3.0))
+            self.mode = Int(clamp(value, 0.0, 6.0))
+            self._update(self.cutoff.value, self.q.value)
+        elif param == Self.GAIN:
+            self.gain = clamp(value, -48.0, 48.0)
             self._update(self.cutoff.value, self.q.value)
         elif param == Self.CUTOFF:
             self.cutoff.set(_clamp_freq(value, self.sample_rate))
@@ -174,6 +183,34 @@ struct Biquad(Processor, Writable):
         var b0: Float64
         var b1: Float64
         var b2: Float64
+        if self.mode >= LOWSHELF:
+            # Shelves and peaking scale by A = sqrt(linear gain), as in the
+            # RBJ cookbook, and set their own a0/a1/a2.
+            var a = 10.0 ** (self.gain / 40.0)
+            var two_sqrt_a_alpha = 2.0 * (a**0.5) * alpha
+            if self.mode == PEAKING:
+                self.b0 = (1.0 + alpha * a) / (1.0 + alpha / a)
+                self.b1 = (-2.0 * cw) / (1.0 + alpha / a)
+                self.b2 = (1.0 - alpha * a) / (1.0 + alpha / a)
+                self.a1 = (-2.0 * cw) / (1.0 + alpha / a)
+                self.a2 = (1.0 - alpha / a) / (1.0 + alpha / a)
+                return
+            var shelf_a0: Float64
+            if self.mode == LOWSHELF:
+                shelf_a0 = (a + 1.0) + (a - 1.0) * cw + two_sqrt_a_alpha
+                self.b0 = a * ((a + 1.0) - (a - 1.0) * cw + two_sqrt_a_alpha) / shelf_a0
+                self.b1 = 2.0 * a * ((a - 1.0) - (a + 1.0) * cw) / shelf_a0
+                self.b2 = a * ((a + 1.0) - (a - 1.0) * cw - two_sqrt_a_alpha) / shelf_a0
+                self.a1 = -2.0 * ((a - 1.0) + (a + 1.0) * cw) / shelf_a0
+                self.a2 = ((a + 1.0) + (a - 1.0) * cw - two_sqrt_a_alpha) / shelf_a0
+            else:
+                shelf_a0 = (a + 1.0) - (a - 1.0) * cw + two_sqrt_a_alpha
+                self.b0 = a * ((a + 1.0) + (a - 1.0) * cw + two_sqrt_a_alpha) / shelf_a0
+                self.b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * cw) / shelf_a0
+                self.b2 = a * ((a + 1.0) + (a - 1.0) * cw - two_sqrt_a_alpha) / shelf_a0
+                self.a1 = 2.0 * ((a - 1.0) - (a + 1.0) * cw) / shelf_a0
+                self.a2 = ((a + 1.0) - (a - 1.0) * cw - two_sqrt_a_alpha) / shelf_a0
+            return
         if self.mode == LOWPASS:
             b0 = (1.0 - cw) / 2.0
             b1 = 1.0 - cw

@@ -16,8 +16,12 @@ concurrency:
 
 jobs:
   qa:
-    name: QA (lint, typecheck, test)
-    runs-on: ubuntu-latest
+    name: QA (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
 
@@ -33,13 +37,18 @@ jobs:
         run: uv sync --dev
 
       - name: Lint with ruff
-        run: uv run ruff check src/ tests/ hatch_build.py
+        run: uv run ruff check src/ tests/ examples/ hatch_build.py
 
       - name: Check formatting with ruff
-        run: uv run ruff format --check src/ tests/ hatch_build.py
+        run: uv run ruff format --check src/ tests/ examples/ hatch_build.py
 
       - name: Type check with mypy
         run: uv run mypy src/mdsp hatch_build.py
+
+      - name: Install PortAudio
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install portaudio;
+          else sudo apt-get update && sudo apt-get install -y libportaudio2; fi
 
       - name: Build Mojo extension
         run: make build
@@ -48,6 +57,7 @@ jobs:
         run: uv run pytest -v --cov=src/mdsp --cov-report=xml
 
       - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v7
         with:
           files: coverage.xml

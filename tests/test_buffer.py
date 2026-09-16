@@ -27,7 +27,19 @@ def test_copies_by_default():
 
 def test_copy_false_adopts_compatible_array():
     src = np.zeros((2, 4), np.float32)
-    assert AudioBuffer(src, copy=False).data is src
+    buf = AudioBuffer(src, copy=False)
+    assert buf.data.base is src  # a view of the caller's array, not a copy
+    buf.data[0, 0] = 1.0
+    assert src[0, 0] == 1.0
+
+
+def test_data_view_cannot_be_reallocated():
+    # The kernels cache this address, so the storage must not move.
+    buf = AudioBuffer(np.zeros((1, 8)), 48000)
+    before = buf.address
+    with pytest.raises(ValueError, match="does not own its data"):
+        buf.data.resize((1, 64), refcheck=False)
+    assert buf.address == before
 
 
 def test_properties_and_zeros():

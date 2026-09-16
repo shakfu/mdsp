@@ -6,10 +6,14 @@ oscillator accepts a ``freq`` modulation input in Hz.
 
 from __future__ import annotations
 
+from typing import Literal
+
+import numpy as np  # noqa: F401  (used by the Noise doctest)
+
 from mdsp import _core
 from mdsp._base import Generator, Param, _Unit
 
-__all__ = ["Phasor", "Saw", "Sine", "Square"]
+__all__ = ["Color", "Noise", "Phasor", "Saw", "Sine", "Square"]
 
 
 def _below_nyquist(unit: _Unit, value: float) -> None:
@@ -54,3 +58,46 @@ class Square(_Oscillator):
 
     _kernel = _core.Square
     freq = Param(0, _below_nyquist)
+
+
+Color = Literal["white", "pink"]
+COLORS: tuple[Color, ...] = ("white", "pink")
+
+
+class Noise(Generator):
+    """Noise from an xorshift generator, white or pink.
+
+    ``pink`` falls at about 3 dB per octave, using Paul Kellet's economy
+    filter, and is quieter than ``white``: 0.17 RMS against 0.58, with peaks
+    inside [-1, 1]. Channels of one unit share the *seed* and so produce the
+    same samples.
+
+    >>> first = Noise(seed=7).generate(4).data
+    >>> (Noise(seed=7).generate(4).data == first).all()
+    np.True_
+    """
+
+    _kernel = _core.Noise
+    seed = Param(0)
+
+    def __init__(
+        self,
+        seed: float = 22222,
+        color: Color = "white",
+        *,
+        sample_rate: float = 48000.0,
+        channels: int = 1,
+    ) -> None:
+        super().__init__(sample_rate, channels, seed=seed, color=color)
+
+    @property
+    def color(self) -> Color:
+        return COLORS[int(self._params["color"])]
+
+    @color.setter
+    def color(self, value: Color) -> None:
+        if value not in COLORS:
+            raise ValueError(f"color must be one of {COLORS}, got {value!r}")
+        index = float(COLORS.index(value))
+        self._impl.set(1, index)
+        self._params["color"] = index

@@ -37,5 +37,5 @@ Licence: `LicenseRef-MAX-Platform-Software-License` (from the `mojo-compiler` me
 
 ## Verification status
 
-- Linux x86_64: built, repaired, installed into clean venvs without Mojo on 3.10-3.14 (109 tests pass); sdist install from source also works.
-- Linux aarch64 and macOS arm64: not run locally. `wheels.yml` builds and tests them. Target CPU names `generic` and `apple-m1`, and the macOS rpath rewrite, are untested.
+- Linux x86_64: built, repaired, installed into clean venvs without Mojo on 3.10-3.14; sdist install from source also works.
+- Linux aarch64 and macOS arm64: verified by `wheels.yml` on 2026-09-16 (run 35059670150). All three platforms built and all 15 wheel tests passed (3 platforms x Python 3.10-3.14), which covers the `generic` and `apple-m1` CPU targets and the macOS rpath rewrite and re-signing.

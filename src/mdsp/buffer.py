@@ -27,7 +27,7 @@ class AudioBuffer:
     (2, 480, 0.01)
     """
 
-    __slots__ = ("_data", "_sample_rate")
+    __slots__ = ("_ctypes", "_data", "_sample_rate", "_view")
 
     def __init__(
         self, data: ArrayLike, sample_rate: float = 48000.0, copy: bool = True
@@ -43,6 +43,10 @@ class AudioBuffer:
         self._data: NDArray[np.float32] = np.array(
             arr, dtype=np.float32, order="C", copy=True if copy else None
         )
+        # `data` hands out a view, which numpy refuses to resize. The storage
+        # therefore cannot move, so its address can be cached for the kernels.
+        self._view: NDArray[np.float32] = self._data.view()
+        self._ctypes = self._data.ctypes
         self._sample_rate = sr
 
     @classmethod
@@ -54,8 +58,17 @@ class AudioBuffer:
 
     @property
     def data(self) -> NDArray[np.float32]:
-        """The underlying ``[channels, frames]`` array."""
-        return self._data
+        """A view of the ``[channels, frames]`` samples.
+
+        Writes go straight to the buffer's storage; the view exists so the
+        storage cannot be reallocated out from under a running kernel.
+        """
+        return self._view
+
+    @property
+    def address(self) -> int:
+        """Address of the first sample, for `mdsp._core`."""
+        return self._ctypes.data
 
     @property
     def sample_rate(self) -> float:

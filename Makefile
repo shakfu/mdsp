@@ -35,19 +35,19 @@ test: build
 
 # Lint with ruff (applies fixes)
 lint:
-	@uv run ruff check --fix src/ tests/ hatch_build.py
+	@uv run ruff check --fix src/ tests/ examples/ hatch_build.py
 
 # Lint with ruff (check only, no fixes)
 lint-check:
-	@uv run ruff check src/ tests/ hatch_build.py
+	@uv run ruff check src/ tests/ examples/ hatch_build.py
 
 # Format with ruff
 format:
-	@uv run ruff format src/ tests/ hatch_build.py
+	@uv run ruff format src/ tests/ examples/ hatch_build.py
 
 # Check formatting without modifying files
 format-check:
-	@uv run ruff format --check src/ tests/ hatch_build.py
+	@uv run ruff format --check src/ tests/ examples/ hatch_build.py
 
 # Type check with mypy
 typecheck:

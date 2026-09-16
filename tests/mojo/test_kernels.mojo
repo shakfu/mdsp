@@ -5,8 +5,15 @@ Run: mojo run -I src/mdsp/_mojo tests/mojo/test_kernels.mojo
 
 from std.testing import TestSuite, assert_equal, assert_true
 
-from dsp.filters import NOTCH
+from dsp.filters import PEAKING
 from dsp import (
+    Adsr,
+    Compressor,
+    Reverb,
+    Shaper,
+    Mix,
+    Noise,
+    Port,
     MAX_INPUTS,
     Biquad,
     Delay,
@@ -43,9 +50,9 @@ def _ptr(mut buf: List[Float32], offset: Int) -> SamplePtr:
 
 def _run[P: Processor](mut unit: P, src: Int, dst: SamplePtr, n: Int, mod: Int = 0):
     """Process with the audio input at `src` and an optional modulation input."""
-    var ports = InlineArray[Int, MAX_INPUTS](fill=0)
-    ports[0] = src
-    ports[1] = mod
+    var ports = InlineArray[Port, MAX_INPUTS](fill=Port())
+    ports[0] = Port(src, 1)
+    ports[1] = Port(mod, 1)
     unit.process(Ports(unsafe_from_address=Int(Pointer(to=ports))), dst, n)
 
 
@@ -159,6 +166,93 @@ def test_delay_read_position_stays_below_size() raises:
     assert_equal(read_position(0, 1.0, size), Float64(size - 1))
 
 
+def test_mix() raises:
+    var u = Mix(SR)
+    u.set(Mix.GAIN, 0.5)
+    u.set(Mix.GAIN2, 0.25)
+    _check_contract(u^)
+
+
+def test_noise() raises:
+    var u = Noise(SR)
+    u.set(Noise.SEED, 99.0)
+    _check_contract(u^)
+
+
+def test_adsr() raises:
+    var u = Adsr(SR)
+    u.set(Adsr.ATTACK_TIME, 0.001)
+    u.set(Adsr.DECAY_TIME, 0.002)
+    u.set(Adsr.SUSTAIN_LEVEL, 0.4)
+    u.set(Adsr.RELEASE_TIME, 0.003)
+    u.set(Adsr.GATE, 1.0)
+    _check_contract(u^)
+
+
+def test_mix_sums_its_inputs() raises:
+    var ones = List[Float32](length=N, fill=1.0)
+    var halves = List[Float32](length=N, fill=0.5)
+    var out = List[Float32](length=N, fill=0.0)
+    var u = Mix(SR)
+    u.set(Mix.GAIN, 2.0)
+    u.set(Mix.GAIN2, 4.0)
+    u.reset()
+    var ports = InlineArray[Port, MAX_INPUTS](fill=Port())
+    ports[0] = Port(Int(_ptr(ones, 0)), 1)
+    ports[1] = Port(Int(_ptr(halves, 0)), 1)
+    u.process(Ports(unsafe_from_address=Int(Pointer(to=ports))), _ptr(out, 0), N)
+    for i in range(N):
+        assert_equal(out[i], Float32(4.0), String("mix at ", i))
+
+
+def test_adsr_stages() raises:
+    var u = Adsr(SR)
+    u.set(Adsr.ATTACK_TIME, 10.0 / SR)  # 10 samples
+    u.set(Adsr.DECAY_TIME, 10.0 / SR)
+    u.set(Adsr.SUSTAIN_LEVEL, 0.5)
+    u.set(Adsr.RELEASE_TIME, 10.0 / SR)
+    u.reset()
+    assert_equal(u.tick(0.0), Float32(0.0))  # gate closed: silent
+    u.set(Adsr.GATE, 1.0)
+    for _ in range(10):
+        _ = u.tick(0.0)
+    assert_equal(u.level, 1.0)  # attack reached the top
+    for _ in range(10):
+        _ = u.tick(0.0)
+    assert_equal(u.level, 0.5)  # decayed to sustain
+    _ = u.tick(0.0)
+    assert_equal(u.level, 0.5)  # holds while gated
+    u.set(Adsr.GATE, 0.0)
+    for _ in range(10):
+        _ = u.tick(0.0)
+    assert_equal(u.level, 0.0)  # released
+
+
+def test_compressor() raises:
+    var u = Compressor(SR)
+    u.set(Compressor.THRESHOLD, -18.0)
+    u.set(Compressor.RATIO, 6.0)
+    u.set(Compressor.ATTACK, 0.002)
+    u.set(Compressor.RELEASE, 0.05)
+    _check_contract(u^)
+
+
+def test_shaper() raises:
+    for shape in range(3):
+        var u = Shaper(SR)
+        u.set(Shaper.DRIVE, 3.0)
+        u.set(Shaper.SHAPE, Float64(shape))
+        _check_contract(u^)
+
+
+def test_reverb() raises:
+    var u = Reverb(SR)
+    u.set(Reverb.ROOM_SIZE, 0.7)
+    u.set(Reverb.DAMPING, 0.3)
+    u.set(Reverb.MIX, 0.4)
+    _check_contract(u^)
+
+
 def test_unknown_param_is_noop() raises:
     var u = OnePole(SR)
     var before = u.a
@@ -173,7 +267,7 @@ def test_params_are_clamped() raises:
     u.set(Biquad.MODE, 42.0)
     assert_equal(u.cutoff.target, 0.4999 * SR)
     assert_equal(u.q.target, 1.0e-3)
-    assert_equal(u.mode, NOTCH)
+    assert_equal(u.mode, PEAKING)  # clamped to the last mode
     var d = Delay(SR)
     d.set(Delay.MAX_DELAY, 1.0e9)
     assert_equal(d.max_delay, 600.0)

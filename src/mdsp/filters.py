@@ -10,8 +10,20 @@ from mdsp._base import Param, Processor, _Unit, below_nyquist
 
 __all__ = ["Biquad", "BiquadMode", "OnePole", "Svf"]
 
-BiquadMode = Literal["lowpass", "highpass", "bandpass", "notch"]
-_MODES: tuple[BiquadMode, ...] = ("lowpass", "highpass", "bandpass", "notch")
+BiquadMode = Literal[
+    "lowpass", "highpass", "bandpass", "notch", "lowshelf", "highshelf", "peaking"
+]
+_MODES: tuple[BiquadMode, ...] = (
+    "lowpass",
+    "highpass",
+    "bandpass",
+    "notch",
+    "lowshelf",
+    "highshelf",
+    "peaking",
+)
+#: Modes that use `gain`; the others ignore it.
+GAIN_MODES: frozenset[str] = frozenset({"lowshelf", "highshelf", "peaking"})
 
 
 def _positive(unit: _Unit, value: float) -> None:
@@ -49,11 +61,15 @@ class _TwoPoleFilter(Processor):
         mode: BiquadMode = "lowpass",
         cutoff: float = 1000.0,
         q: float = 1 / math.sqrt(2),
+        gain: float = 0.0,
         *,
         sample_rate: float = 48000.0,
         channels: int = 1,
     ) -> None:
-        super().__init__(sample_rate, channels, mode=mode, cutoff=cutoff, q=q)
+        params: dict[str, float | str] = {"mode": mode, "cutoff": cutoff, "q": q}
+        if "gain" in type(self)._kernel(sample_rate, 1).param_names():
+            params["gain"] = gain
+        super().__init__(sample_rate, channels, **params)
 
     @property
     def mode(self) -> BiquadMode:
@@ -72,12 +88,20 @@ class Biquad(_TwoPoleFilter):
     """RBJ cookbook biquad. No modulation input: use `Svf` for that.
 
     Args:
-        mode: Filter response. ``bandpass`` has 0 dB gain at *cutoff*.
-        cutoff: Cutoff or centre frequency in Hz.
+        mode: Filter response. ``bandpass`` has 0 dB gain at *cutoff*;
+            ``lowshelf``, ``highshelf`` and ``peaking`` are the EQ shapes.
+        cutoff: Cutoff, corner or centre frequency in Hz.
         q: Quality factor. ``1/sqrt(2)`` gives a Butterworth low- or highpass.
+        gain: Shelf or peak height in dB. Only the modes in `GAIN_MODES` use it.
+
+    >>> from mdsp import AudioBuffer
+    >>> shelf = Biquad("lowshelf", cutoff=200.0, gain=6.0)
+    >>> shelf.mode, shelf.gain
+    ('lowshelf', 6.0)
     """
 
     _kernel = _core.Biquad
+    gain = Param(3)
 
 
 class Svf(_TwoPoleFilter):

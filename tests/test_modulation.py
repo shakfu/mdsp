@@ -21,7 +21,7 @@ def _const(value, frames=4800, channels=1):
         (Gain(), ("gain",)),
         (OnePole(), ("cutoff",)),
         (Svf(), ("cutoff",)),
-        (Delay(0.01), ()),
+        (Delay(0.01), ("delay",)),
         (Biquad(), ()),
     ],
 )

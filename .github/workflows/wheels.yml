@@ -37,6 +37,9 @@ jobs:
       - name: Build and repair wheel
         run: make wheel
 
+      - name: Show the wheel's tag
+        run: ls -la dist/
+
       - uses: actions/upload-artifact@v7
         with:
           name: dist-wheel-${{ matrix.platform }}
@@ -86,6 +89,11 @@ jobs:
         with:
           name: dist-wheel-${{ matrix.platform }}
           path: dist
+
+      - name: Install PortAudio
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install portaudio;
+          else sudo apt-get update && sudo apt-get install -y libportaudio2; fi
 
       - name: Install wheel into a clean environment
         run: |

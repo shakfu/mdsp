@@ -1,6 +1,12 @@
 from std.math import ceil, clamp, floor
 
-from dsp.processor import Ports, Processor, SamplePtr, audio_input
+from dsp.processor import (
+    Ports,
+    Processor,
+    SamplePtr,
+    audio_input,
+    input_address,
+)
 from dsp.smooth import Smoothed
 
 comptime MAX_DELAY_SECONDS = 600.0
@@ -47,7 +53,7 @@ struct Delay(Processor, Writable):
 
     @staticmethod
     def input_names() -> List[String]:
-        return ["in"]
+        return ["in", "delay"]
 
     def set(mut self, param: Int, value: Float64):
         if param == Self.MAX_DELAY:
@@ -87,6 +93,12 @@ struct Delay(Processor, Writable):
 
     def process(mut self, ins: Ports, dst: SamplePtr, n: Int):
         var src = audio_input(ins, dst)
+        var modulation = input_address(ins, 1)
+        if modulation != 0:
+            self._process_modulated(
+                src, SamplePtr(unsafe_from_address=modulation), dst, n
+            )
+            return
         var size = len(self.line)
         var base = self.line.unsafe_ptr()
         var w = self.write
@@ -108,6 +120,31 @@ struct Delay(Processor, Writable):
             if w == size:
                 w = 0
             i += 1
+        self.write = w
+
+
+
+    def _process_modulated(
+        mut self, src: SamplePtr, seconds: SamplePtr, dst: SamplePtr, n: Int
+    ):
+        """Delay time read per sample, in seconds: chorus and flanging.
+
+        The modulation replaces the `delay` parameter, so its smoothing is
+        bypassed; the modulating signal sets the rate of change.
+        """
+        var size = len(self.line)
+        var base = self.line.unsafe_ptr()
+        var w = self.write
+        var fb = self.feedback
+        var mix = self.mix
+        for i in range(n):
+            var d = self._clamp_delay(
+                Float64(seconds[unsafe_offset=i]) * self.sample_rate
+            )
+            dst[unsafe_offset=i] = _step(base, size, w, d, fb, mix, src[unsafe_offset=i])
+            w += 1
+            if w == size:
+                w = 0
         self.write = w
 
 

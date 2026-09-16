@@ -1,4 +1,4 @@
-from std.math import floor, pi, sin
+from std.math import clamp, floor, pi, sin
 
 from dsp.processor import Ports, Processor, SamplePtr, input_address
 
@@ -146,3 +146,78 @@ comptime Phasor = Osc[PhasorShape]
 comptime Sine = Osc[SineShape]
 comptime Saw = Osc[SawShape]
 comptime Square = Osc[SquareShape]
+
+
+struct Noise(Processor, Writable):
+    """White noise in [-1, 1) from an xorshift generator.
+
+    Every channel of one unit shares the `seed`, so they produce the same
+    samples; generate mono noise per channel if you need them decorrelated.
+    """
+
+    comptime SEED = 0
+    comptime COLOR = 1
+
+    comptime WHITE = 0
+    comptime PINK = 1
+
+    var seed: UInt32
+    var state: UInt32
+    var color: Int
+    var pink_a: Float32
+    var pink_b: Float32
+    var pink_c: Float32
+
+    def __init__(out self, sample_rate: Float64):
+        self.seed = 22222
+        self.state = self.seed
+        self.color = Self.WHITE
+        self.pink_a = 0.0
+        self.pink_b = 0.0
+        self.pink_c = 0.0
+
+    @staticmethod
+    def param_names() -> List[String]:
+        return ["seed", "color"]
+
+    @staticmethod
+    def input_names() -> List[String]:
+        return ["in"]
+
+    def set(mut self, param: Int, value: Float64):
+        if param == Self.SEED:
+            self.seed = UInt32(Int(max(value, 1.0)) & 0xFFFFFFFF)
+            self.state = self.seed
+        elif param == Self.COLOR:
+            self.color = Int(clamp(value, 0.0, 1.0))
+
+    def reset(mut self):
+        self.state = self.seed
+        self.pink_a = 0.0
+        self.pink_b = 0.0
+        self.pink_c = 0.0
+
+    @always_inline
+    def _next(mut self) -> Float32:
+        self.state ^= self.state << 13
+        self.state ^= self.state >> 17
+        self.state ^= self.state << 5
+        var white = Float32(self.state >> 8) / Float32(1 << 23) - 1.0
+        if self.color == Self.WHITE:
+            return white
+        # Paul Kellet's economy pink filter: three one-poles summed, which
+        # tracks -3 dB per octave closely enough for audio.
+        self.pink_a = 0.99765 * self.pink_a + white * 0.0990460
+        self.pink_b = 0.96300 * self.pink_b + white * 0.2965164
+        self.pink_c = 0.57000 * self.pink_c + white * 1.0526913
+        # 0.1 keeps peaks inside [-1, 1] over long runs (measured 0.8 peak,
+        # 0.17 RMS); pink noise is quieter than white at the same peak.
+        return (self.pink_a + self.pink_b + self.pink_c + white * 0.1848) * 0.1
+
+    @always_inline
+    def tick(mut self, x: Float32) -> Float32:
+        return self._next()
+
+    def process(mut self, ins: Ports, dst: SamplePtr, n: Int):
+        for i in range(n):
+            dst[unsafe_offset=i] = self._next()

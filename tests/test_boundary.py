@@ -20,7 +20,7 @@ from mdsp import (
     Square,
     _core,
 )
-from mdsp._base import Param, _check_interpreter, _Unit
+from mdsp._base import Param, _check_interpreter, check_planar
 
 SR = 48000.0
 UNITS = [Phasor, Sine, Saw, Square, OnePole, Biquad, Gain, Delay]
@@ -64,28 +64,24 @@ def test_mutated_buffer_dtype_is_caught():
         Gain().process(buf)
 
 
-def _unit() -> _Unit:
-    return Gain(channels=1)
-
-
-def test_run_rejects_non_contiguous():
+def test_check_planar_rejects_non_contiguous():
     arr = np.zeros((1, 8), np.float32)[:, ::2]
     with pytest.raises(ValueError, match="C-contiguous"):
-        _unit()._run(arr, np.zeros((1, 4), np.float32))
+        check_planar([arr], (1, 4))
 
 
-def test_run_rejects_shape_mismatch():
+def test_check_planar_rejects_shape_and_dtype_mismatch():
     with pytest.raises(ValueError, match="shape"):
-        _unit()._run(np.zeros((1, 8), np.float32), np.zeros((1, 4), np.float32))
-    with pytest.raises(ValueError, match="shape"):
-        _unit()._run(np.zeros(8, np.float32), np.zeros(8, np.float32))
+        check_planar([np.zeros((1, 8), np.float32)], (1, 4))
+    with pytest.raises(ValueError, match="float32"):
+        check_planar([np.zeros((1, 4), np.float64)], (1, 4))
 
 
-def test_run_rejects_read_only_output():
-    dst = np.zeros((1, 4), np.float32)
-    dst.flags.writeable = False
+def test_read_only_output_is_rejected():
+    out = AudioBuffer(np.zeros((1, 4)), SR)
+    out.data.flags.writeable = False
     with pytest.raises(ValueError, match="read-only"):
-        _unit()._run(np.zeros((1, 4), np.float32), dst)
+        Gain().process(AudioBuffer(np.zeros((1, 4)), SR), out)
 
 
 def test_process_releases_gil():

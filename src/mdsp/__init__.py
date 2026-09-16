@@ -9,26 +9,49 @@
 
 from mdsp._base import Chain, Generator, Processor
 from mdsp.buffer import AudioBuffer
+from mdsp.chorus import Chorus
 from mdsp.delay import Delay
+from mdsp.dynamics import Compressor, Limiter
+from mdsp.envelope import Adsr
 from mdsp.filters import Biquad, OnePole, Svf
+from mdsp.graph import Graph, Input
 from mdsp.io import read_wav, write_wav
-from mdsp.ops import Gain
-from mdsp.oscillators import Phasor, Saw, Sine, Square
+from mdsp.ops import Gain, Mix, Scale, Shaper
+from mdsp.oscillators import Noise, Phasor, Saw, Sine, Square
+from mdsp.reverb import Reverb
+from mdsp.stereo import Pan, Width
+from mdsp.stream import Stream, input_devices, output_devices
 
 __all__ = [
+    "Adsr",
     "AudioBuffer",
     "Biquad",
     "Chain",
+    "Chorus",
+    "Compressor",
     "Delay",
     "Gain",
     "Generator",
+    "Graph",
+    "Input",
+    "Limiter",
+    "Mix",
+    "Noise",
     "OnePole",
+    "Pan",
     "Phasor",
     "Processor",
+    "Reverb",
     "Saw",
+    "Scale",
+    "Shaper",
     "Sine",
     "Square",
+    "Stream",
     "Svf",
+    "Width",
+    "input_devices",
+    "output_devices",
     "read_wav",
     "write_wav",
 ]
