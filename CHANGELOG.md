@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0]
+
 ### Added
 
 - Mojo kernels behind a `Processor` trait (`tick` and block `process`): `Phasor`, `Sine`, `OnePole`, `Biquad`, `Gain`. Python classes wrap them with `AudioBuffer` in/out, plus `Chain`. `make build` compiles `src/mdsp/_core.so` with `mojo build`.
@@ -20,7 +22,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Mojo code is compiled with `--fp-mode contract=off`. The default `contract=fast` fused multiply-adds differently in `Delay.tick` and `Delay.process`, so outputs differed by 1 ulp; fusion also varies with target CPU. Cost is mixed: OnePole -23%, Delay -14%, Biquad +17%.
 
-- Binary wheels: hatchling replaces uv_build, which supports only pure Python and had packed the in-tree `_core.so` into a `py3-none-any` wheel pointing at the build venv. `hatch_build.py` compiles the extension, bundles the three Mojo runtime libraries into `mdsp/_libs/`, and tags one `py3-none` wheel per platform; `make wheel` repairs it to `manylinux_2_35` (the runtime libraries need glibc 2.35) or macOS. The Mojo compiler is no longer a runtime dependency. Details: `docs/dev/packaging.md`.
+- Binary wheels: hatchling replaces uv_build, which supports only pure Python and had packed the in-tree `_core.so` into a `py3-none-any` wheel pointing at the build venv. `scripts/hatch_build.py` compiles the extension, bundles the three Mojo runtime libraries into `mdsp/_libs/`, and tags one `py3-none` wheel per platform; `make wheel` repairs it to `manylinux_2_35` (the runtime libraries need glibc 2.35) or macOS. The Mojo compiler is no longer a runtime dependency. Details: `docs/dev/packaging.md`.
+
+- macOS wheels target macOS 13 (`MACOSX_DEPLOYMENT_TARGET` overrides). `mojo build` targets the host OS, so a wheel built locally on macOS 26 was tagged `macosx_26_0`.
 
 - Importing under free-threaded CPython raises `ImportError`; the extension segfaulted on import.
 
@@ -76,14 +80,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - PortAudio is looked for under Homebrew's prefix as well as the linker's own search path, since dyld does not search `/opt/homebrew/lib` by default on Apple silicon.
 - CI: QA runs on macOS as well as Linux, so `make build` and the Mojo kernel tests are exercised there; PortAudio is installed on every runner, and the tests that need a device now decide by opening a stream rather than by trusting the device list, which a headless runner can report wrongly.
 
-### Removed
-
-- Template `add` / `greet` functions and the no-runtime-dependencies test. numpy is now a runtime dependency.
-
-## [0.1.0] - 2026-09-15
-
-### Added
-
 - Initial project structure
 
 - Core module with example functions
@@ -91,3 +87,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Test suite with pytest
 
 - Build system using uv_build
+
+### Removed
+
+- Template `add` / `greet` functions and the no-runtime-dependencies test. numpy is now a runtime dependency.
+
+### Added

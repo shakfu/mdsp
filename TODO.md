@@ -27,3 +27,5 @@
 ## Low
 
 - [ ] `repr` of `_core` objects prints every kernel field for every channel.
+
+- [ ] Explore making numpy optional. Kernels would accept any contiguous float32 buffer (PEP 3118), with numpy needed only for the `NDArray` API and `io`. Gain: a smaller install for users without numpy. Costs: two input paths, and a buffer numpy doesn't own can reallocate under a cached address (`AudioBuffer.address` relies on numpy refusing to resize viewed storage).

@@ -25,7 +25,7 @@ from typing import Any
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 MOJO_ROOT = ROOT / "src" / "mdsp" / "_mojo"
 LIBS_DIR = "_libs"
 
@@ -36,6 +36,14 @@ MOJO_FLAGS = ["--fp-mode", "contract=off"]
 # Baselines that run on any CPU of the architecture. Override with the
 # MDSP_TARGET_CPU environment variable; "host" optimises for the build machine.
 DEFAULT_TARGET_CPU = {"x86_64": "x86-64-v2", "aarch64": "generic", "arm64": "apple-m1"}
+
+# Oldest supported macOS, matching the mojo-compiler wheel. Override with the
+# MACOSX_DEPLOYMENT_TARGET environment variable.
+DEFAULT_MACOS_TARGET = "13.0"
+
+
+def _macos_target() -> str:
+    return os.environ.get("MACOSX_DEPLOYMENT_TARGET") or DEFAULT_MACOS_TARGET
 
 
 def _mojo_env() -> dict[str, str]:
@@ -59,6 +67,12 @@ def compile_extension(output: Path) -> None:
     args = ["build", "--emit", "shared-lib", *MOJO_FLAGS]
     if cpu != "host":
         args += ["--target-cpu", cpu]
+    if sys.platform == "darwin":
+        # Mojo otherwise targets the host macOS, which sets the wheel's minimum.
+        # The triple sets the objects' minimum; the variable sets the linker's.
+        target = _macos_target()
+        os.environ["MACOSX_DEPLOYMENT_TARGET"] = target
+        args += ["--target-triple", f"{platform.machine()}-apple-macosx{target}"]
     args += ["-I", str(MOJO_ROOT), str(MOJO_ROOT / "_core.mojo"), "-o", str(output)]
     subprocess_run_mojo(args, check=True)
 
@@ -140,9 +154,9 @@ class MojoBuildHook(BuildHookInterface[Any]):
         # One wheel serves every supported CPython: the extension resolves the
         # C API at load time. Tested on 3.10-3.14; free-threaded builds crash.
         plat = sysconfig.get_platform().replace("-", "_").replace(".", "_")
-        target = os.environ.get("MACOSX_DEPLOYMENT_TARGET")
-        if sys.platform == "darwin" and target:
-            plat = f"macosx_{target.replace('.', '_')}_{platform.machine()}"
+        if sys.platform == "darwin":
+            target = _macos_target().replace(".", "_")
+            plat = f"macosx_{target}_{platform.machine()}"
         build_data["tag"] = f"py3-none-{plat}"
 
     def finalize(
@@ -154,5 +168,5 @@ class MojoBuildHook(BuildHookInterface[Any]):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        sys.exit("usage: python hatch_build.py OUTPUT")
+        sys.exit("usage: python scripts/hatch_build.py OUTPUT")
     compile_extension(Path(sys.argv[1]))

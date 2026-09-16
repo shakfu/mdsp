@@ -135,7 +135,7 @@ make wheel   # platform wheel with bundled runtime, repaired into dist/
 | `src/mdsp/_mojo/_core.mojo` | Python bindings: `Bank[P]`, one kernel per channel |
 | `src/mdsp/_base.py` | Python base classes; validates buffers before they reach Mojo |
 | `tests/mojo/` | Kernel contract tests, run by pytest via `mojo run` |
-| `hatch_build.py` | Wheel build hook: compiles and bundles the extension |
+| `scripts/hatch_build.py` | Wheel build hook: compiles and bundles the extension |
 | `docs/dev/` | Design spikes and decision records |
 
 ## Direction

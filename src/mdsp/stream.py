@@ -13,10 +13,13 @@ from __future__ import annotations
 import ctypes.util
 import os
 from types import TracebackType
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any
 
 from mdsp import _core
 from mdsp.graph import Graph
+
+if TYPE_CHECKING:
+    from typing import Self  # Python 3.11+
 
 __all__ = ["Stream", "input_devices", "output_devices"]
 

@@ -1,7 +1,7 @@
 # Makefile frontend for mdsp
 #
-# Packaging uses hatchling; hatch_build.py compiles the Mojo extension for
-# wheels. For development, `make build` compiles src/mdsp/_core.so in place.
+# Packaging uses hatchling; scripts/hatch_build.py compiles the Mojo extension
+# for wheels. For development, `make build` compiles src/mdsp/_core.so in place.
 
 .PHONY: all sync build rebuild test lint lint-check format format-check \
         typecheck qa clean distclean wheel sdist dist check publish-test \
@@ -21,8 +21,8 @@ sync:
 # Sync the environment and build the Mojo extension if its sources changed
 build: sync $(CORE_SO)
 
-$(CORE_SO): $(MOJO_SRC) hatch_build.py
-	@uv run python hatch_build.py $@
+$(CORE_SO): $(MOJO_SRC) scripts/hatch_build.py
+	@uv run python scripts/hatch_build.py $@
 
 # Force a rebuild of the Mojo extension
 rebuild:
@@ -35,23 +35,23 @@ test: build
 
 # Lint with ruff (applies fixes)
 lint:
-	@uv run ruff check --fix src/ tests/ examples/ hatch_build.py
+	@uv run ruff check --fix src/ tests/ examples/ scripts/hatch_build.py
 
 # Lint with ruff (check only, no fixes)
 lint-check:
-	@uv run ruff check src/ tests/ examples/ hatch_build.py
+	@uv run ruff check src/ tests/ examples/ scripts/hatch_build.py
 
 # Format with ruff
 format:
-	@uv run ruff format src/ tests/ examples/ hatch_build.py
+	@uv run ruff format src/ tests/ examples/ scripts/hatch_build.py
 
 # Check formatting without modifying files
 format-check:
-	@uv run ruff format --check src/ tests/ examples/ hatch_build.py
+	@uv run ruff format --check src/ tests/ examples/ scripts/hatch_build.py
 
 # Type check with mypy
 typecheck:
-	@uv run mypy src/mdsp hatch_build.py
+	@uv run mypy src/mdsp scripts/hatch_build.py
 
 # Run a full quality assurance check (non-mutating; mirrors CI)
 qa: lint-check format-check typecheck test

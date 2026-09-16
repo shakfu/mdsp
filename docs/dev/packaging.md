@@ -1,6 +1,6 @@
 # Packaging: binary wheels
 
-Date: 2026-09-16. Decision: hatchling with a build hook (`hatch_build.py`), one `py3-none` wheel per platform, Mojo runtime libraries bundled, compiler not a runtime dependency.
+Date: 2026-09-16. Decision: hatchling with a build hook (`scripts/hatch_build.py`), one `py3-none` wheel per platform, Mojo runtime libraries bundled, compiler not a runtime dependency.
 
 ## Why not uv_build
 
@@ -8,7 +8,7 @@ uv_build "only supports pure Python code" ([docs](https://docs.astral.sh/uv/conc
 
 ## Build flow
 
-1. `hatch_build.py` compiles `_core.mojo` into a temp dir with `--fp-mode contract=off` and a baseline `--target-cpu`.
+1. `scripts/hatch_build.py` compiles `_core.mojo` into a temp dir with `--fp-mode contract=off` and a baseline `--target-cpu`.
 2. It copies the runtime libraries the extension links (found via `patchelf --print-needed` / `otool -L`) from the build environment's Mojo install into `mdsp/_libs/`, and sets the extension's search path to `$ORIGIN/_libs` (Linux) or `@loader_path/_libs` (macOS, then ad hoc re-signed).
 3. `auditwheel repair` / `delocate-wheel` retags for PyPI. Both treat the libraries in `_libs` as part of the wheel and graft nothing.
 
@@ -32,6 +32,7 @@ Licence: `LicenseRef-MAX-Platform-Software-License` (from the `mojo-compiler` me
 | glibc | `libAsyncRTRuntimeGlobals` needs `GLIBC_2.35`, `libKGENCompilerRTShared` needs `GLIBCXX_3.4.30`; `_core.so` alone needs 2.34 | `manylinux_2_35`, although Mojo's own wheels are tagged `2_34` |
 | Python versions | One `_core.so` passed the suite on 3.10-3.14 | `py3-none` tag |
 | Free-threaded | 3.14t segfaults on import (exit 139) | Import guard in `mdsp._base` raises `ImportError` |
+| macOS minimum | `mojo build` targets the host macOS: `_core.so` built on 26 has `minos 26.0`, so `delocate-wheel` tagged the wheel `macosx_26_0`. The bundled runtime libraries have `minos 11.0`; `_core.so` imports only libSystem symbols available since 10.12. `--target-triple` alone changes the objects' minimum, not the link's; `MACOSX_DEPLOYMENT_TARGET` alone makes `ld` warn that objects target 26.0 | Hook sets both, default 13.0 |
 | CPU baseline | `x86-64-v2` vs host (AVX2): Sine -21%, Delay -10%, others unchanged | Default `x86-64-v2`; `MDSP_TARGET_CPU` overrides |
 | Threads | Mojo runtime init starts one idle worker per CPU in the affinity mask (16 here; any Mojo extension does this). 0 CPU idle, +7 MiB RSS. Fork, forkserver, spawn all work; the threads trigger Python's multi-threaded-fork `DeprecationWarning` | No pool-size setting found; `taskset` limits it. Default left unchanged |
 
