@@ -24,6 +24,8 @@
 
 - [ ] Graph feedback, and multichannel nodes.
 
+- [ ] Open questions from `docs/dev/mojo-for-dsp.md`: price a Rust plus PyO3 spike against the `Graph` benchmark, and write a SIMD partitioned-convolution kernel to test whether Mojo's differentiator fires here. No kernel uses SIMD today.
+
 ## Low
 
 - [ ] `repr` of `_core` objects prints every kernel field for every channel.
