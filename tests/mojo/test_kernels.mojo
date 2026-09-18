@@ -50,7 +50,7 @@ def _ptr(mut buf: List[Float32], offset: Int) -> SamplePtr:
 
 def _run[P: Processor](mut unit: P, src: Int, dst: SamplePtr, n: Int, mod: Int = 0):
     """Process with the audio input at `src` and an optional modulation input."""
-    var ports = InlineArray[Port, MAX_INPUTS](fill=Port())
+    var ports = Array[Port, MAX_INPUTS](fill=Port())
     ports[0] = Port(src, 1)
     ports[1] = Port(mod, 1)
     unit.process(Ports(unsafe_from_address=Int(Pointer(to=ports))), dst, n)
@@ -197,7 +197,7 @@ def test_mix_sums_its_inputs() raises:
     u.set(Mix.GAIN, 2.0)
     u.set(Mix.GAIN2, 4.0)
     u.reset()
-    var ports = InlineArray[Port, MAX_INPUTS](fill=Port())
+    var ports = Array[Port, MAX_INPUTS](fill=Port())
     ports[0] = Port(Int(_ptr(ones, 0)), 1)
     ports[1] = Port(Int(_ptr(halves, 0)), 1)
     u.process(Ports(unsafe_from_address=Int(Pointer(to=ports))), _ptr(out, 0), N)

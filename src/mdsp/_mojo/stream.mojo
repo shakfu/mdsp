@@ -64,17 +64,17 @@ struct ParamQueue(Movable):
     var nodes: List[Int32]
     var params: List[Int32]
     var values: List[Float32]
-    var head: OwnedPointer[Atomic[DType.int64]]  # advanced by the consumer
-    var tail: OwnedPointer[Atomic[DType.int64]]  # advanced by the producer
-    var dropped: OwnedPointer[Atomic[DType.int64]]
+    var head: OwnedPointer[Atomic[Int64]]  # advanced by the consumer
+    var tail: OwnedPointer[Atomic[Int64]]  # advanced by the producer
+    var dropped: OwnedPointer[Atomic[Int64]]
 
     def __init__(out self):
         self.nodes = List[Int32](length=QUEUE_CAPACITY, fill=0)
         self.params = List[Int32](length=QUEUE_CAPACITY, fill=0)
         self.values = List[Float32](length=QUEUE_CAPACITY, fill=0.0)
-        self.head = OwnedPointer(Atomic[DType.int64](0))
-        self.tail = OwnedPointer(Atomic[DType.int64](0))
-        self.dropped = OwnedPointer(Atomic[DType.int64](0))
+        self.head = OwnedPointer(Atomic[Int64](0))
+        self.tail = OwnedPointer(Atomic[Int64](0))
+        self.dropped = OwnedPointer(Atomic[Int64](0))
 
     def push(mut self, node: Int32, param: Int32, value: Float32) -> Bool:
         var tail = self.tail[].load()
@@ -132,10 +132,10 @@ struct Stream(Movable):
     var scratch: List[Float32]  # one block per channel, planar
     var capture: List[Float32]  # planar input for the graph's Input nodes
     var input_channels: Int
-    var callbacks: Atomic[DType.int64]
-    var underruns: Atomic[DType.int64]
-    var worst_render_ns: Atomic[DType.int64]
-    var applied: Atomic[DType.int64]  # messages the audio thread has applied
+    var callbacks: Atomic[Int64]
+    var underruns: Atomic[Int64]
+    var worst_render_ns: Atomic[Int64]
+    var applied: Atomic[Int64]  # messages the audio thread has applied
 
     def __init__(out self, graph: Pointer[Graph, MutUntrackedOrigin]) raises:
         self.graph = graph
@@ -145,10 +145,10 @@ struct Stream(Movable):
         self.scratch = List[Float32]()
         self.capture = List[Float32]()
         self.input_channels = 0
-        self.callbacks = Atomic[DType.int64](0)
-        self.underruns = Atomic[DType.int64](0)
-        self.worst_render_ns = Atomic[DType.int64](0)
-        self.applied = Atomic[DType.int64](0)
+        self.callbacks = Atomic[Int64](0)
+        self.underruns = Atomic[Int64](0)
+        self.worst_render_ns = Atomic[Int64](0)
+        self.applied = Atomic[Int64](0)
         var error = self.library.get_function[c_int]("Pa_Initialize")()
         if error != 0:
             raise Error("Pa_Initialize failed: " + self.error_text(error))

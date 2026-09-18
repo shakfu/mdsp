@@ -115,13 +115,13 @@ struct Bank[P: Processor](Movable, Writable):
         var dst_addr = Int(py=dst)
         var n = Int(py=frames)
         var stride = n * size_of[Float32]()
-        var mod_addrs = InlineArray[Int, MAX_INPUTS](fill=0)
+        var mod_addrs = Array[Int, MAX_INPUTS](fill=0)
         var num_mods = Int(py=len(mods))
         if num_mods > MAX_INPUTS - 1:
             raise Error("too many modulation inputs")
         for k in range(num_mods):
             mod_addrs[k + 1] = Int(py=mods[k])
-        var ports = InlineArray[Port, MAX_INPUTS](fill=Port())
+        var ports = Array[Port, MAX_INPUTS](fill=Port())
         var ports_ptr = Ports(unsafe_from_address=Int(Pointer(to=ports)))
         ref units = self_ptr[].units
         # No PythonObject may be touched while the GIL is released.
@@ -476,7 +476,7 @@ struct WideBank[P: WideProcessor](Movable, Writable):
         var src_addr = Int(py=src)
         var dst_addr = Int(py=dst)
         var n = Int(py=frames)
-        var ports = InlineArray[Port, MAX_INPUTS](fill=Port())
+        var ports = Array[Port, MAX_INPUTS](fill=Port())
         ref unit = self_ptr[].unit
         var channels = self_ptr[].channels
         ports[0] = Port(src_addr, channels)

@@ -493,7 +493,7 @@ struct Graph(Movable):
         """
         if len(self.kinds) == 0:
             raise Error("the graph has no nodes")
-        var ports = InlineArray[Port, MAX_INPUTS](fill=Port())
+        var ports = Array[Port, MAX_INPUTS](fill=Port())
         var ports_ptr = Ports(unsafe_from_address=Int(Pointer(to=ports)))
         var base = Int(self.arena.unsafe_ptr())
         var node_stride = self.channels * self.block * 4
@@ -549,7 +549,7 @@ struct Graph(Movable):
     @always_inline
     def _fill_ports(
         mut self,
-        mut ports: InlineArray[Port, MAX_INPUTS],
+        mut ports: Array[Port, MAX_INPUTS],
         node: Int,
         channel: Int,
         base: Int,

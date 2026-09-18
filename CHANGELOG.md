@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Mojo 1.1.0. `InlineArray[T, N]` is now `Array[T, N]`, and `Atomic` takes a type rather than a DType (`Atomic[DType.int64]` becomes `Atomic[Int64]`); both old spellings are parse errors. The `mojo-compiler` floor in `[build-system]` moved with it, having been left at `<1.1` where a source build would have compiled 1.1 sources with the 1.0 compiler.
+
+### Fixed
+
+- `hatchling>=1.32.3` in both `[build-system] requires` and the dev group. `uv sync` resolves the build backend separately from `uv.lock`, so the isolated build env took 1.32.3 while the lock held 1.32.0. 1.32.3 gave `BuildHookInterface` a second type parameter, and no single subscript in `MojoBuildHook` satisfies both arities. A shared floor over an unsubscripted base: the latter compiles on either version, but `disallow_any_generics` rejects it under strict mypy.
+
 ## [0.1.0]
 
 ### Added

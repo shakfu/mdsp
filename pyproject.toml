@@ -28,8 +28,8 @@ classifiers = [
 dev = [
     "auditwheel>=6.4; sys_platform == 'linux'",
     "delocate>=0.13; sys_platform == 'darwin'",
-    "hatchling>=1.27",
-    "mojo>=1.0.0,<1.1",
+    "hatchling>=1.32.3",
+    "mojo>=1.1.0,<1.2",
     "patchelf>=0.17; sys_platform == 'linux'",
     "mypy>=2.3.1",
     "pytest>=9.1.1",
@@ -40,8 +40,8 @@ dev = [
 
 [build-system]
 requires = [
-    "hatchling>=1.27",
-    "mojo-compiler>=1.0.0,<1.1",
+    "hatchling>=1.32.3",
+    "mojo-compiler>=1.1.0,<1.2",
     "patchelf>=0.17; sys_platform == 'linux'",
 ]
 build-backend = "hatchling.build"

@@ -136,10 +136,10 @@ struct Mix(Processor, Writable):
     comptime GAIN3 = 2
     comptime GAIN4 = 3
 
-    var gains: InlineArray[Smoothed, 4]
+    var gains: Array[Smoothed, 4]
 
     def __init__(out self, sample_rate: Float64):
-        self.gains = InlineArray[Smoothed, 4](fill=Smoothed(1.0, sample_rate))
+        self.gains = Array[Smoothed, 4](fill=Smoothed(1.0, sample_rate))
 
     @staticmethod
     def param_names() -> List[String]:
@@ -158,7 +158,7 @@ struct Mix(Processor, Writable):
             self.gains[i].snap()
 
     @always_inline
-    def _advance(mut self, mut gains: InlineArray[Float32, 4]):
+    def _advance(mut self, mut gains: Array[Float32, 4]):
         for i in range(4):
             gains[i] = Float32(self.gains[i].next())
 
@@ -166,19 +166,19 @@ struct Mix(Processor, Writable):
     def tick(mut self, x: Float32) -> Float32:
         # Only the first input exists per-sample; the others advance in step so
         # that `process` with one input connected matches this exactly.
-        var gains = InlineArray[Float32, 4](fill=0.0)
+        var gains = Array[Float32, 4](fill=0.0)
         self._advance(gains)
         return x * gains[0]
 
     def process(mut self, ins: Ports, dst: SamplePtr, n: Int):
-        var sources = InlineArray[Int, 4](fill=0)
+        var sources = Array[Int, 4](fill=0)
         for port in range(4):
             sources[port] = input_address(ins, port)
         if sources[0] == 0:  # nothing connected to the first port: silence
             sources[0] = Int(dst)
             for i in range(n):
                 dst[unsafe_offset=i] = 0.0
-        var gains = InlineArray[Float32, 4](fill=0.0)
+        var gains = Array[Float32, 4](fill=0.0)
         for i in range(n):
             self._advance(gains)
             var total = SamplePtr(unsafe_from_address=sources[0])[
