@@ -1,6 +1,6 @@
 [project]
 name = "mdsp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python audio DSP library with kernels written in Mojo"
 readme = "README.md"
 license = { text = "MIT" }

@@ -18,9 +18,12 @@ from mdsp.graph import Graph, Input
 from mdsp.io import read_wav, write_wav
 from mdsp.ops import Gain, Mix, Scale, Shaper
 from mdsp.oscillators import Noise, Phasor, Saw, Sine, Square
+from mdsp.pitch import Shift
+from mdsp.player import Player
 from mdsp.reverb import Reverb
 from mdsp.stereo import Pan, Width
 from mdsp.stream import Stream, input_devices, output_devices
+from mdsp.stretch import timestretch
 
 __all__ = [
     "Adsr",
@@ -40,11 +43,13 @@ __all__ = [
     "OnePole",
     "Pan",
     "Phasor",
+    "Player",
     "Processor",
     "Reverb",
     "Saw",
     "Scale",
     "Shaper",
+    "Shift",
     "Sine",
     "Square",
     "Stream",
@@ -53,6 +58,7 @@ __all__ = [
     "input_devices",
     "output_devices",
     "read_wav",
+    "timestretch",
     "write_wav",
 ]
-__version__ = "0.1.0"
+__version__ = "0.2.0"
