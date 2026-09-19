@@ -12,6 +12,8 @@ nodes run in the order they were added.
 from std.utils import Variant
 
 from dsp.chorus import Chorus
+from dsp.shift import Shift
+from dsp.player import Player
 from dsp.delay import Delay
 from dsp.filters import Biquad, OnePole, Svf
 from dsp.dynamics import Compressor
@@ -140,19 +142,23 @@ comptime AnyNode = Variant[
     Compressor,
     Shaper,
     Reverb,
-    Chorus,
+    Shift,
 ]
 
-comptime AnyWideNode = Variant[Pan, Width]
+comptime AnyWideNode = Variant[Pan, Width, Chorus, Player]
 
 comptime WIDE_BASE = 100  # kind numbers at or above this are channel-aware
 
 
-def _wide_node(kind: Int, sample_rate: Float64) raises -> AnyWideNode:
+def _wide_node(kind: Int, sample_rate: Float64, channels: Int) raises -> AnyWideNode:
     if kind == WIDE_BASE:
-        return AnyWideNode(Pan(sample_rate))
+        return AnyWideNode(Pan(sample_rate, channels))
     if kind == WIDE_BASE + 1:
-        return AnyWideNode(Width(sample_rate))
+        return AnyWideNode(Width(sample_rate, channels))
+    if kind == WIDE_BASE + 2:
+        return AnyWideNode(Chorus(sample_rate, channels))
+    if kind == WIDE_BASE + 3:
+        return AnyWideNode(Player(sample_rate, channels))
     raise Error("unknown node kind")
 
 
@@ -213,9 +219,11 @@ def kind_names() -> List[String]:
         "compressor",
         "shaper",
         "reverb",
-        "chorus",
+        "shift",
         "pan",
         "width",
+        "chorus",
+        "player",
     ]
 
 
@@ -255,7 +263,7 @@ def _node(kind: Int, sample_rate: Float64) raises -> AnyNode:
     if kind == 16:
         return AnyNode(Reverb(sample_rate))
     if kind == 17:
-        return AnyNode(Chorus(sample_rate))
+        return AnyNode(Shift(sample_rate))
     raise Error("unknown node kind")
 
 
@@ -348,7 +356,9 @@ struct Graph(Movable):
 
     def add(mut self, kind: Int) raises -> Int:
         if kind >= WIDE_BASE:
-            self.wide_nodes.append(_wide_node(kind, self.sample_rate))
+            self.wide_nodes.append(
+                _wide_node(kind, self.sample_rate, self.channels)
+            )
             self.wide_of.append(len(self.wide_nodes) - 1)
             for _ in range(self.channels):  # keep the per-channel stride uniform
                 self.nodes.append(_node(0, self.sample_rate))
@@ -407,6 +417,15 @@ struct Graph(Movable):
         )
         self.wiring[dst * MAX_INPUTS + port] = src
         self.feedback_of[dst * MAX_INPUTS + port] = len(self.feedback) - 1
+
+    def load(mut self, node: Int, address: Int, frames: Int) raises:
+        """Hand a source buffer to a `player` node."""
+        self._check_node(node)
+        var wide = self.wide_of[node]
+        if wide >= 0 and self.wide_nodes[wide].isa[Player]():
+            self.wide_nodes[wide][Player].load(address, frames)
+            return
+        raise Error("only a player node takes a source buffer")
 
     def set(mut self, node: Int, param: Int, value: Float64) raises:
         self._check_node(node)

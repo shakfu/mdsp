@@ -6,11 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-19
+
+### Added
+
+- `Svf` takes `gain` in dB and the `lowshelf`, `highshelf` and `peaking` modes `Biquad` already had, as weights on the output of the same two integrators (`m0 * v0 + m1 * v1 + m2 * v2`, with `g` and `k` bent for the EQ shapes; Simper's table). Responses match `Biquad` within 0.05 dB. `Biquad` overshoots when its coefficients move, so until now no EQ shape could be swept; `gain` ramps over 10 ms where `Biquad` steps it.
+
+- `Compressor` takes `rms`, a window in seconds over which the detector averages the squared signal, and `lookahead`, seconds of audio held back while the detector runs ahead of it. 0 keeps the peak detector and zero latency. The lookahead line is allocated for `MAX_LOOKAHEAD_SECONDS` (20 ms) at construction rather than when the parameter is set, so the audio thread may change it: a `Limiter` with 2 ms holds -6 dBFS within 0.3 dB on a step that otherwise passes -0.2 dBFS. The output is delayed by the lookahead and nothing reports that latency.
+
+- `Chorus` takes `voices` (up to 4 taps per channel, spaced around the LFO cycle and averaged) and `spread` (phase offset between channels, 0 to a full cycle across the unit). It is now a channel-aware kernel holding one line per channel, because the phase offset needs the channel index and a per-channel kernel has none. One LFO drives every channel, so the image moves as one.
+
+- `Shift`: pitch shifting on one delay line read by two heads that run at `2 ** (semitones / 12)` relative to the write head and cross over half a window apart. Same frames in and out, so it is an ordinary `Processor` and works in a `Chain`, a `Graph` and a `Stream`. A head steps by a whole window when it wraps, which spreads energy into sidebands spaced by `abs(1 - ratio) / window` unless the window happens to hold a whole number of input cycles; a shifted tone therefore sits within that much of its target. Removing that needs spectral resynthesis, which is what the vocoder below does; `Shift` cannot use it until that framing runs in real time.
+
+- `Player`: plays a buffer it owns at any rate, forwards or backwards, looping or once, with `rate` modulatable and `position` seeking in seconds. Channel-aware, since one read position has to serve every channel. `Graph.load(node, buf)` hands a `player` node its samples; a buffer cannot arrive through `set(param, value)`, which carries only a float.
+
+- `timestretch(buf, factor)`: WSOLA, offline. Segments a window long are overlap-added half a window apart in the output and `half a window / factor` apart in the input, each taken from wherever it best continues the one before (normalised cross-correlation, channel 0 deciding for all channels so the image holds). The summed window is divided out, so factor 1 returns the input to float32 epsilon and neither end fades. It returns a buffer of a different length, which is why it is a function: a `Processor` and a `Graph` node must return the frames they were given. Roughly 65 ms per second of output at 48 kHz; `search=0` drops to plain overlap-add.
+
+- `timestretch(..., mode="vocoder")`: a phase vocoder beside WSOLA. Each bin is advanced by the frequency it holds rather than the one its bin stands for, so tonal and polyphonic material stretches without the splice artifacts WSOLA leaves; transients smear instead, which is the opposite trade. One rotation per bin is applied to every channel, so inter-channel phase survives exactly. Interior level is flat within 0.05 dB from factor 0.2 to 4, factor 1 returns the input to 3.6e-07, and it runs 6x faster than WSOLA (15 ms against 85 ms for 2 s of output) because WSOLA pays for its correlation search.
+
+- Playing a `Player` at `1 / factor` into a `Shift` of `12 * log2(factor)` semitones stretches time in real time, at that shifter's quality rather than WSOLA's. A 128-frame block through the pair renders in 44 us against its 2.7 ms deadline.
+
+- `dsp/fft.mojo`: radix-2 complex FFT and the real-input transform on top of it, sizes a power of two, twiddles and the bit-reversal permutation built at construction so a transform allocates nothing. `RealFft` packs even samples into the real part and odd into the imaginary, transforms at half the size and untangles the halves: 3.82 us against 6.05 us at 1024 points. Written in Mojo rather than bound to FFTW, which is GPL and would relicense an MIT library; the speed argument does not carry it, since a 1024-point forward and inverse costs 0.23% of a 5.33 ms hop here against 0.04% with FFTW. It is 6x slower than FFTW (0.96 us at 1024), all of which is SIMD and radix-4 that `dsp/fft.mojo` does not yet do. Tested against a direct DFT, plus round trips and Parseval.
+
+- `WideProcessor.__init__` takes the channel count, so a channel-aware kernel with per-channel state sizes it at construction rather than on the audio thread.
+
 ### Changed
 
 - Mojo 1.1.0. `InlineArray[T, N]` is now `Array[T, N]`, and `Atomic` takes a type rather than a DType (`Atomic[DType.int64]` becomes `Atomic[Int64]`); both old spellings are parse errors. The `mojo-compiler` floor in `[build-system]` moved with it, having been left at `<1.1` where a source build would have compiled 1.1 sources with the 1.0 compiler.
 
 ### Fixed
+
+- `Chorus` depth 0 swept by one sample instead of holding still: depth was clamped to the same floor as a read position, which must stay at least one sample behind the write head. The read position is clamped where it is used, so depth now clamps to [0, line].
 
 - `hatchling>=1.32.3` in both `[build-system] requires` and the dev group. `uv sync` resolves the build backend separately from `uv.lock`, so the isolated build env took 1.32.3 while the lock held 1.32.0. 1.32.3 gave `BuildHookInterface` a second type parameter, and no single subscript in `MojoBuildHook` satisfies both arities. A shared floor over an unsubscripted base: the latter compiles on either version, but `disallow_any_generics` rejects it under strict mypy.
 
@@ -100,4 +126,3 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Template `add` / `greet` functions and the no-runtime-dependencies test. numpy is now a runtime dependency.
 
-### Added

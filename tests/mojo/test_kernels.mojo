@@ -24,6 +24,7 @@ from dsp import (
     Processor,
     SamplePtr,
     Saw,
+    Shift,
     Sine,
     Square,
     Svf,
@@ -124,11 +125,12 @@ def test_onepole() raises:
 
 
 def test_biquad_modes() raises:
-    for mode in range(4):
+    for mode in range(7):
         var u = Biquad(SR)
         u.set(Biquad.MODE, Float64(mode))
         u.set(Biquad.CUTOFF, 3000.0)
         u.set(Biquad.Q, 2.0)
+        u.set(Biquad.GAIN, -7.5)
         _check_contract(u^)
 
 
@@ -237,6 +239,33 @@ def test_compressor() raises:
     _check_contract(u^)
 
 
+def test_compressor_rms_and_lookahead() raises:
+    var u = Compressor(SR)
+    u.set(Compressor.THRESHOLD, -18.0)
+    u.set(Compressor.RATIO, 6.0)
+    u.set(Compressor.KNEE, 9.0)
+    u.set(Compressor.RMS, 0.01)
+    u.set(Compressor.LOOKAHEAD, 0.003)
+    assert_equal(u.lookahead, 144)
+    _check_contract(u^)
+
+
+def test_lookahead_is_capped_by_the_line() raises:
+    var u = Compressor(SR)
+    u.set(Compressor.LOOKAHEAD, 10.0)
+    assert_equal(u.lookahead, len(u.line) - 1)
+
+
+def test_shift() raises:
+    var settings: List[Float64] = [-7.0, 5.0]
+    for semitones in settings:
+        var u = Shift(SR)
+        u.set(Shift.SEMITONES, semitones)
+        u.set(Shift.WINDOW, 0.03)
+        u.set(Shift.MIX, 0.8)
+        _check_contract(u^)
+
+
 def test_shaper() raises:
     for shape in range(3):
         var u = Shaper(SR)
@@ -289,11 +318,12 @@ def _process_split[P: Processor](var unit: P, mut x: List[Float32], sizes: List[
 
 
 def test_svf_modes() raises:
-    for mode in range(4):
+    for mode in range(7):
         var u = Svf(SR)
         u.set(Svf.MODE, Float64(mode))
         u.set(Svf.CUTOFF, 2200.0)
         u.set(Svf.Q, 3.0)
+        u.set(Svf.GAIN, -7.5)  # ignored outside the EQ modes
         u.reset()
         _check_contract(u^)
 

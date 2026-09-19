@@ -220,10 +220,12 @@ def test_chorus_modulates_the_delay():
     assert not np.allclose(moving, fixed)  # the sweep changes the signal
 
 
-def test_chorus_with_no_depth_is_a_plain_delay():
+@pytest.mark.parametrize("rate", [0.0, 3.0])
+def test_chorus_with_no_depth_is_a_plain_delay(rate):
+    """Depth 0 holds the line still however fast the LFO runs."""
     x = AudioBuffer(np.random.default_rng(1).uniform(-1, 1, 2048), SR)
     chorus = Chorus(
-        rate=0.0, depth=0.0, delay=0.01, feedback=0.0, mix=1.0, sample_rate=SR
+        rate=rate, depth=0.0, delay=0.01, feedback=0.0, mix=1.0, sample_rate=SR
     )
     delay = Delay(0.01, feedback=0.0, mix=1.0, max_delay=0.1, sample_rate=SR)
     np.testing.assert_allclose(chorus.process(x).data, delay.process(x).data, atol=1e-6)
@@ -250,6 +252,95 @@ def test_delay_time_can_be_modulated():
 def test_chorus_rejects_delays_beyond_its_line():
     with pytest.raises(ValueError, match="seconds"):
         Chorus(delay=0.5)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"voices": 0}, "whole number"),
+        ({"voices": 5}, "whole number"),
+        ({"voices": 1.5}, "whole number"),
+        ({"spread": 1.5}, r"\[0, 1\]"),
+    ],
+)
+def test_chorus_rejects_bad_voices_and_spread(kwargs, match):
+    with pytest.raises(ValueError, match=match):
+        Chorus(**kwargs)
+
+
+def _stereo_noise(frames=4800, seed=4):
+    mono = np.random.default_rng(seed).uniform(-1, 1, frames)
+    return AudioBuffer(np.stack([mono, mono]), SR)
+
+
+def test_spread_puts_the_channels_out_of_phase():
+    x = _stereo_noise()
+    together = (
+        Chorus(rate=1.0, depth=0.004, delay=0.008, mix=1.0, channels=2, sample_rate=SR)
+        .process(x)
+        .data
+    )
+    apart = (
+        Chorus(
+            rate=1.0,
+            depth=0.004,
+            delay=0.008,
+            mix=1.0,
+            spread=1.0,
+            channels=2,
+            sample_rate=SR,
+        )
+        .process(x)
+        .data
+    )
+    np.testing.assert_array_equal(together[0], together[1])  # one shared LFO
+    assert np.corrcoef(apart[0], apart[1])[0, 1] < 0.9  # antiphase sweeps
+
+
+def test_spread_needs_a_sweep_to_do_anything():
+    """With no depth the LFO moves nothing, so the offset cannot either."""
+    x = _stereo_noise()
+    kwargs = {
+        "rate": 1.0,
+        "depth": 0.0,
+        "delay": 0.008,
+        "mix": 1.0,
+        "channels": 2,
+        "sample_rate": SR,
+    }
+    np.testing.assert_array_equal(
+        Chorus(spread=1.0, **kwargs).process(x).data,
+        Chorus(**kwargs).process(x).data,
+    )
+
+
+def test_voices_read_one_line_at_different_phases():
+    x = AudioBuffer(np.random.default_rng(5).uniform(-1, 1, 4800), SR)
+    kwargs = {"rate": 1.0, "delay": 0.008, "mix": 1.0, "sample_rate": SR}
+    one = Chorus(depth=0.004, voices=1, **kwargs).process(x).data
+    three = Chorus(depth=0.004, voices=3, **kwargs).process(x).data
+    assert not np.allclose(one, three)
+    # Voices are averaged, so more of them cannot make the output louder.
+    assert np.abs(three).max() <= np.abs(one).max() + 1e-6
+    # Without a sweep every voice reads the same place and they collapse.
+    flat = {"depth": 0.0, **kwargs}
+    np.testing.assert_allclose(
+        Chorus(voices=4, **flat).process(x).data,
+        Chorus(voices=1, **flat).process(x).data,
+        atol=1e-6,
+    )
+
+
+def test_chorus_is_a_stereo_graph_node():
+    g = Graph(SR, channels=2, block=64)
+    src = g.add(Input)
+    wide = g.add(Chorus, rate=2.0, depth=0.003, delay=0.008, mix=1.0, spread=1.0)
+    g.connect(src, wide)
+    g.output = wide
+    out = g.process(_stereo_noise(frames=2048)).data
+    assert np.isfinite(out).all()
+    assert np.corrcoef(out[0], out[1])[0, 1] < 0.9
+    assert g.params(wide)[-2:] == ("voices", "spread")
 
 
 # ------------------------------------------------------- stream capture

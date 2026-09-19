@@ -196,3 +196,58 @@ def test_svf_stays_bounded_under_fast_modulation_where_biquad_does_not():
     )
     svf = Svf("lowpass", 200.0, 8.0, sample_rate=SR).process(x, cutoff=jumps).data
     assert np.abs(svf).max() < 10  # measured ~5.8; the biquad form reaches ~180
+
+
+@pytest.mark.parametrize(
+    ("mode", "kwargs", "probe"),
+    [
+        ("lowshelf", {"cutoff": 500.0, "gain": 6.0}, 50.0),
+        ("lowshelf", {"cutoff": 500.0, "gain": -12.0}, 50.0),
+        ("highshelf", {"cutoff": 2000.0, "gain": 9.0}, 16000.0),
+        ("peaking", {"cutoff": 1000.0, "q": 2.0, "gain": 10.0}, 1000.0),
+        ("peaking", {"cutoff": 1000.0, "q": 2.0, "gain": -10.0}, 1000.0),
+    ],
+)
+def test_svf_eq_shapes_match_the_biquad(mode, kwargs, probe):
+    svf = _gain_db_at(Svf(mode, sample_rate=SR, **kwargs), probe)
+    biquad = _gain_db_at(Biquad(mode, sample_rate=SR, **kwargs), probe)
+    assert svf == pytest.approx(kwargs["gain"], abs=0.05)
+    assert svf == pytest.approx(biquad, abs=0.05)
+
+
+@pytest.mark.parametrize("mode", ["lowshelf", "highshelf", "peaking"])
+def test_svf_eq_leaves_the_far_side_alone(mode):
+    far = 50.0 if mode == "highshelf" else 16000.0
+    assert _gain_db_at(
+        Svf(mode, 1000.0, gain=12.0, sample_rate=SR), far
+    ) == pytest.approx(0.0, abs=0.3)
+
+
+def test_svf_gain_is_ignored_by_the_plain_modes():
+    x = _noise(1, 512)
+    plain = Svf("lowpass", 1000.0, gain=12.0, sample_rate=SR)
+    reference = Svf("lowpass", 1000.0, sample_rate=SR)
+    np.testing.assert_array_equal(plain.process(x).data, reference.process(x).data)
+
+
+def test_svf_gain_ramps_then_settles():
+    """A shelf can be moved while it runs: the ramp ends at the static filter."""
+    x = _noise(1, int(SR))
+    moved = Svf("highshelf", 2000.0, gain=0.0, sample_rate=SR)
+    moved.gain = 12.0  # ramps over 10 ms
+    settled = Svf("highshelf", 2000.0, gain=12.0, sample_rate=SR)
+    ramped = moved.process(x).data
+    direct = settled.process(x).data
+    ramp = int(0.01 * SR)
+    assert not np.allclose(ramped[:, :ramp], direct[:, :ramp])
+    np.testing.assert_allclose(ramped[:, 2 * ramp :], direct[:, 2 * ramp :], atol=1e-5)
+
+
+def test_svf_bell_stays_bounded_while_its_cutoff_sweeps():
+    frames = 48000
+    x = _noise(1, frames)
+    jumps = AudioBuffer(
+        np.where((np.arange(frames) // 32) % 2 == 0, 200.0, 12000.0), SR
+    )
+    bell = Svf("peaking", 1000.0, q=4.0, gain=18.0, sample_rate=SR)
+    assert np.abs(bell.process(x, cutoff=jumps).data).max() < 16  # 18 dB is 7.9x

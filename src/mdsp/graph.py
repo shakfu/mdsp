@@ -26,6 +26,8 @@ from mdsp.envelope import Adsr
 from mdsp.filters import _MODES, Biquad, OnePole, Svf
 from mdsp.ops import CURVES, SHAPES, Gain, Mix, Scale, Shaper
 from mdsp.oscillators import COLORS, Noise, Phasor, Saw, Sine, Square
+from mdsp.pitch import Shift
+from mdsp.player import Player
 from mdsp.reverb import Reverb
 from mdsp.stereo import Pan, Width
 
@@ -77,6 +79,8 @@ _KINDS: dict[type, str] = {
     Shaper: "shaper",
     Reverb: "reverb",
     Chorus: "chorus",
+    Shift: "shift",
+    Player: "player",
     Pan: "pan",
     Width: "width",
 }
@@ -196,6 +200,32 @@ class Graph:
         self._check(node)
         if node in self._removed:
             raise ValueError(f"node {node} was removed")
+
+    def load(self, node: int, buf: AudioBuffer) -> None:
+        """Give a ``player`` node its source samples.
+
+        Args:
+            node: A handle returned by `add` for a `Player`.
+            buf: Samples to copy. It must match the graph's sample rate and
+                channel count.
+
+        Raises:
+            ValueError: If *node* is not a player, or *buf* does not match.
+        """
+        self._check_live(node)
+        self._check_unlocked()
+        if self._kinds[node] != "player":
+            raise ValueError(f"node {node} is a {self._kinds[node]}, not a player")
+        if buf.sample_rate != self._sample_rate:
+            raise ValueError(
+                f"buffer sample_rate {buf.sample_rate} != {self._sample_rate}"
+            )
+        if buf.channels != self._channels:
+            raise ValueError(
+                f"buffer has {buf.channels} channels, expected {self._channels}"
+            )
+        check_planar([buf.data], (self._channels, buf.frames))
+        self._impl.load(node, buf.address, buf.frames)
 
     def kind(self, node: int) -> str:
         """The kind name of *node*."""

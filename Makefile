@@ -111,7 +111,8 @@ release:
 	@echo "Current version: $$(grep '^version' pyproject.toml | head -1)"
 	@read -p "New version: " version; \
 	sed "s/^version = .*/version = \"$$version\"/" pyproject.toml > pyproject.toml.tmp && mv pyproject.toml.tmp pyproject.toml; \
-	git add pyproject.toml; \
+	sed "s/^__version__ = .*/__version__ = \"$$version\"/" src/mdsp/__init__.py > init.tmp && mv init.tmp src/mdsp/__init__.py; \
+	git add pyproject.toml src/mdsp/__init__.py; \
 	git commit -m "Bump version to $$version"; \
 	git tag -a "v$$version" -m "Release $$version"; \
 	echo "Tagged v$$version. Run 'git push && git push --tags' to publish."

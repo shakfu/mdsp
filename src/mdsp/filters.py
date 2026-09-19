@@ -107,12 +107,18 @@ class Biquad(_TwoPoleFilter):
 class Svf(_TwoPoleFilter):
     """Topology-preserving state-variable filter, stable under fast modulation.
 
-    Same parameters as `Biquad`, plus a ``cutoff`` modulation input in Hz. Use
-    this rather than `Biquad` when the cutoff moves; see
-    ``docs/dev/spikes/2026-09-16-interface``.
+    Same parameters and modes as `Biquad`, plus a ``cutoff`` modulation input
+    in Hz. Use this rather than `Biquad` when the cutoff moves; see
+    ``docs/dev/spikes/2026-09-16-interface``. ``gain`` ramps over 10 ms, so a
+    shelf or bell can be moved while it runs.
 
     Source: A. Simper, `Linear Trapezoidal Integrated SVF
     <https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf>`_.
+
+    >>> sweep = Svf("peaking", cutoff=1000.0, q=2.0, gain=9.0)
+    >>> sweep.mode, sweep.gain
+    ('peaking', 9.0)
     """
 
     _kernel = _core.Svf
+    gain = Param(3)

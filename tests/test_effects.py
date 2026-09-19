@@ -86,11 +86,83 @@ def test_limiter_holds_the_threshold():
 
 @pytest.mark.parametrize(
     ("kwargs", "match"),
-    [({"ratio": 0.5}, "at least 1"), ({"attack": -1.0}, "negative")],
+    [
+        ({"ratio": 0.5}, "at least 1"),
+        ({"attack": -1.0}, "negative"),
+        ({"rms": -0.01}, "negative"),
+        ({"lookahead": 0.5}, "seconds"),
+        ({"lookahead": -0.001}, "seconds"),
+    ],
 )
 def test_compressor_rejects_bad_parameters(kwargs, match):
     with pytest.raises(ValueError, match=match):
         Compressor(**kwargs)
+
+
+# ------------------------------------------------ detector and lookahead
+
+
+def test_rms_detector_ignores_a_click_the_peak_detector_catches():
+    x = np.full((1, 480), 0.02, np.float32)  # -34 dB, below the threshold
+    x[0, 240] = 1.0  # one full-scale sample
+    buf = AudioBuffer(x, SR)
+    peak = Compressor(threshold=-20.0, ratio=8.0, attack=0.0, sample_rate=SR)
+    averaged = Compressor(
+        threshold=-20.0, ratio=8.0, attack=0.0, rms=0.05, sample_rate=SR
+    )
+    # The click itself is pulled down by the peak detector but not the average.
+    assert _db(peak.process(buf).data[0, 240]) < -15.0
+    assert _db(averaged.process(buf).data[0, 240]) == pytest.approx(0.0, abs=0.5)
+
+
+def test_rms_and_peak_agree_on_a_steady_level():
+    steady = AudioBuffer(np.full((1, 4800), 0.5), SR)
+    peak = Compressor(threshold=-20.0, ratio=4.0, attack=0.0, sample_rate=SR)
+    averaged = Compressor(
+        threshold=-20.0, ratio=4.0, attack=0.0, rms=0.01, sample_rate=SR
+    )
+    assert _db(averaged.process(steady).data[0, -1]) == pytest.approx(
+        _db(peak.process(steady).data[0, -1]), abs=0.05
+    )
+
+
+@pytest.mark.parametrize("samples", [1, 48, 960])
+def test_lookahead_delays_the_output_by_its_own_length(samples):
+    x = np.zeros((1, 2048), np.float32)
+    x[0, 100] = 0.01  # far below the threshold: gain stays at 1
+    out = (
+        Compressor(threshold=0.0, ratio=1.0, lookahead=samples / SR, sample_rate=SR)
+        .process(AudioBuffer(x, SR))
+        .data[0]
+    )
+    assert int(np.argmax(np.abs(out))) == 100 + samples
+
+
+def test_lookahead_catches_a_transient_the_attack_misses():
+    burst = np.zeros((1, 4800), np.float32)
+    burst[0, 100:] = 1.0
+    buf = AudioBuffer(burst, SR)
+    target = 10 ** (-6.0 / 20)
+
+    def overshoot(lookahead):
+        out = (
+            Limiter(threshold=-6.0, lookahead=lookahead, sample_rate=SR)
+            .process(buf)
+            .data[0]
+        )
+        start = 100 + round(lookahead * SR)
+        return float(np.abs(out[start : start + 96]).max()) / target
+
+    assert overshoot(0.0) > 1.5  # the attack lets the edge through
+    assert overshoot(0.002) < 1.05
+
+
+def test_lookahead_is_cleared_by_reset():
+    loud = AudioBuffer(np.ones((1, 480)), SR)
+    comp = Compressor(threshold=-20.0, lookahead=0.002, sample_rate=SR)
+    first = comp.process(loud).data.copy()
+    comp.reset()
+    np.testing.assert_array_equal(comp.process(loud).data, first)
 
 
 # --------------------------------------------------------------- Shaper

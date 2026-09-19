@@ -24,7 +24,7 @@ struct Pan(WideProcessor, Writable):
 
     var pan: Smoothed
 
-    def __init__(out self, sample_rate: Float64):
+    def __init__(out self, sample_rate: Float64, channels: Int):
         self.pan = Smoothed(0.0, sample_rate)
 
     @staticmethod
@@ -82,7 +82,7 @@ struct Width(WideProcessor, Writable):
 
     var width: Smoothed
 
-    def __init__(out self, sample_rate: Float64):
+    def __init__(out self, sample_rate: Float64, channels: Int):
         self.width = Smoothed(1.0, sample_rate)
 
     @staticmethod

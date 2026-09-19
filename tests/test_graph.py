@@ -152,7 +152,7 @@ def test_introspection():
     filt = g.add(Svf)
     assert len(g) == 2
     assert g.kind(src) == "input" and g.kind(filt) == "svf"
-    assert g.params(filt) == ("mode", "cutoff", "q")
+    assert g.params(filt) == ("mode", "cutoff", "q", "gain")
     assert g.inputs(filt) == ("in", "cutoff")
     assert g.params(src) == ()
     assert "nodes=2" in repr(g) and "channels=2" in repr(g)

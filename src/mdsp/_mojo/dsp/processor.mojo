@@ -85,10 +85,13 @@ trait WideProcessor(Copyable, Deinitable):
 
     `process` receives planar buffers: channel `c` of a port starts at
     `c * frames` samples into it. Mono kernels stay on `Processor`; these exist
-    for the few units that must mix channels together.
+    for the few units that must mix channels together, or that need to know
+    which channel a sample belongs to. The channel count is known at
+    construction so a kernel with per-channel state allocates it there rather
+    than on the audio thread.
     """
 
-    def __init__(out self, sample_rate: Float64): ...
+    def __init__(out self, sample_rate: Float64, channels: Int): ...
 
     @staticmethod
     def param_names() -> List[String]: ...

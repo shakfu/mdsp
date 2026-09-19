@@ -285,7 +285,12 @@ struct Biquad(Processor, Writable):
 struct Svf(Processor, Writable):
     """Topology-preserving state-variable filter.
 
-    Stable under fast cutoff changes, so this is the filter to modulate.
+    Stable under fast cutoff changes, so this is the filter to modulate, and
+    the only one here whose EQ shapes can move: `gain` ramps like the other
+    parameters rather than stepping. The output is a mix of the input and the
+    two integrator outputs, `m0 * v0 + m1 * v1 + m2 * v2`; the mode picks the
+    three weights and, for the EQ shapes, bends `g` and `k` as well.
+
     Ports: audio, `cutoff` in Hz. Source: A. Simper, "Linear Trapezoidal
     Integrated SVF", https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf
     """
@@ -293,17 +298,23 @@ struct Svf(Processor, Writable):
     comptime MODE = 0
     comptime CUTOFF = 1
     comptime Q = 2
+    comptime GAIN = 3
 
     var sample_rate: Float64
     var mode: Int
     var cutoff: Smoothed
     var q: Smoothed
+    var gain: Smoothed  # dB, used by the shelf and peaking modes
     var cutoff_for: Float64
     var q_for: Float64
+    var gain_for: Float64
     var k: Float64
     var a1: Float64
     var a2: Float64
     var a3: Float64
+    var m0: Float64
+    var m1: Float64
+    var m2: Float64
     var ic1: Float64
     var ic2: Float64
 
@@ -312,19 +323,24 @@ struct Svf(Processor, Writable):
         self.mode = LOWPASS
         self.cutoff = Smoothed(_clamp_freq(1000.0, sample_rate), sample_rate)
         self.q = Smoothed(0.7071067811865476, sample_rate)
+        self.gain = Smoothed(0.0, sample_rate)
         self.cutoff_for = 0.0
         self.q_for = 0.0
+        self.gain_for = 0.0
         self.k = 1.0
         self.a1 = 0.0
         self.a2 = 0.0
         self.a3 = 0.0
+        self.m0 = 0.0
+        self.m1 = 0.0
+        self.m2 = 1.0
         self.ic1 = 0.0
         self.ic2 = 0.0
-        self._update(self.cutoff.value, self.q.value)
+        self._update(self.cutoff.value, self.q.value, self.gain.value)
 
     @staticmethod
     def param_names() -> List[String]:
-        return ["mode", "cutoff", "q"]
+        return ["mode", "cutoff", "q", "gain"]
 
     @staticmethod
     def input_names() -> List[String]:
@@ -332,33 +348,75 @@ struct Svf(Processor, Writable):
 
     def set(mut self, param: Int, value: Float64):
         if param == Self.MODE:
-            self.mode = Int(clamp(value, 0.0, 3.0))
+            self.mode = Int(clamp(value, 0.0, 6.0))
+            # Unlike cutoff, q and gain, mode does not ramp: a steady block
+            # would otherwise keep the old weights until the next change.
+            self._update(self.cutoff.value, self.q.value, self.gain.value)
         elif param == Self.CUTOFF:
             self.cutoff.set(_clamp_freq(value, self.sample_rate))
         elif param == Self.Q:
             self.q.set(clamp(value, 1.0e-3, 1.0e3))
+        elif param == Self.GAIN:
+            self.gain.set(clamp(value, -48.0, 48.0))
 
     def reset(mut self):
         self.cutoff.snap()
         self.q.snap()
-        self._update(self.cutoff.value, self.q.value)
+        self.gain.snap()
+        self._update(self.cutoff.value, self.q.value, self.gain.value)
         self.ic1 = 0.0
         self.ic2 = 0.0
 
     @always_inline
-    def _update(mut self, cutoff: Float64, q: Float64):
+    def _update(mut self, cutoff: Float64, q: Float64, gain: Float64):
         self.cutoff_for = cutoff
         self.q_for = q
-        self.k = 1.0 / q
+        self.gain_for = gain
         var g = tan(pi * cutoff / self.sample_rate)
-        self.a1 = 1.0 / (1.0 + g * (g + self.k))
+        var k = 1.0 / q
+        if self.mode == LOWPASS:
+            self.m0 = 0.0
+            self.m1 = 0.0
+            self.m2 = 1.0
+        elif self.mode == HIGHPASS:
+            self.m0 = 1.0
+            self.m1 = -k
+            self.m2 = -1.0
+        elif self.mode == BANDPASS:
+            self.m0 = 0.0
+            self.m1 = k  # 0 dB at the centre frequency
+            self.m2 = 0.0
+        elif self.mode == NOTCH:
+            self.m0 = 1.0
+            self.m1 = -k
+            self.m2 = 0.0
+        else:
+            var a = 10.0 ** (gain / 40.0)  # amplitude at the shelf or peak
+            if self.mode == LOWSHELF:
+                g /= a**0.5
+                self.m0 = 1.0
+                self.m1 = k * (a - 1.0)
+                self.m2 = a * a - 1.0
+            elif self.mode == HIGHSHELF:
+                g *= a**0.5
+                self.m0 = a * a
+                self.m1 = k * (1.0 - a) * a
+                self.m2 = 1.0 - a * a
+            else:  # PEAKING: damping scales with the boost, so Q is the
+                # bandwidth at either sign of gain.
+                k /= a
+                self.m0 = 1.0
+                self.m1 = k * (a * a - 1.0)
+                self.m2 = 0.0
+        self.k = k
+        self.a1 = 1.0 / (1.0 + g * (g + k))
         self.a2 = g * self.a1
         self.a3 = g * self.a2
 
     @always_inline
-    def _update_if_changed(mut self, cutoff: Float64, q: Float64):
-        if cutoff != self.cutoff_for or q != self.q_for:
-            self._update(cutoff, q)
+    def _update_if_changed(mut self, cutoff: Float64, q: Float64, gain: Float64):
+        if cutoff != self.cutoff_for or q != self.q_for or gain != self.gain_for:
+            self._update(cutoff, q, gain)
 
     @always_inline
     def _sample(mut self, x: Float32) -> Float32:
@@ -368,17 +426,11 @@ struct Svf(Processor, Writable):
         var v2 = self.ic2 + self.a2 * self.ic1 + self.a3 * v3
         self.ic1 = 2.0 * v1 - self.ic1
         self.ic2 = 2.0 * v2 - self.ic2
-        if self.mode == LOWPASS:
-            return Float32(v2)
-        if self.mode == HIGHPASS:
-            return Float32(v0 - self.k * v1 - v2)
-        if self.mode == BANDPASS:
-            return Float32(self.k * v1)  # 0 dB at the centre frequency
-        return Float32(v0 - self.k * v1)
+        return Float32(self.m0 * v0 + self.m1 * v1 + self.m2 * v2)
 
     @always_inline
     def tick(mut self, x: Float32) -> Float32:
-        self._update_if_changed(self.cutoff.next(), self.q.next())
+        self._update_if_changed(self.cutoff.next(), self.q.next(), self.gain.next())
         return self._sample(x)
 
     def process(mut self, ins: Ports, dst: SamplePtr, n: Int):
@@ -390,13 +442,16 @@ struct Svf(Processor, Writable):
                 self._update_if_changed(
                     _clamp_freq(Float64(cutoff[unsafe_offset=i]), self.sample_rate),
                     self.q.next(),
+                    self.gain.next(),
                 )
                 dst[unsafe_offset=i] = self._sample(src[unsafe_offset=i])
             return
         var i = 0
-        var ramping = max(self.cutoff.ramping(n), self.q.ramping(n))
+        var ramping = max(
+            self.cutoff.ramping(n), max(self.q.ramping(n), self.gain.ramping(n))
+        )
         while i < ramping:
-            self._update_if_changed(self.cutoff.next(), self.q.next())
+            self._update_if_changed(self.cutoff.next(), self.q.next(), self.gain.next())
             dst[unsafe_offset=i] = self._sample(src[unsafe_offset=i])
             i += 1
         while i < n:

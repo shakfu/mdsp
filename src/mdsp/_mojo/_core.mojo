@@ -17,6 +17,7 @@ from dsp import (
     MAX_INPUTS,
     Chorus,
     Pan,
+    Player,
     Width,
     WideProcessor,
     Adsr,
@@ -37,8 +38,11 @@ from dsp import (
     Saw,
     Scale,
     Shaper,
+    Shift,
     Sine,
     Square,
+    timestretch as stretch_buffer,
+    vocoder_stretch,
     Svf,
     kind_index,
     kind_names,
@@ -222,6 +226,20 @@ struct PyGraph(Movable, Writable):
         return PythonObject(None)
 
     @staticmethod
+    def load(
+        self_ptr: Pointer[Self, MutAnyOrigin],
+        node: PythonObject,
+        address: PythonObject,
+        frames: PythonObject,
+    ) raises -> PythonObject:
+        self_ptr[].check_unlocked()
+        var n = Int(py=frames)
+        if n < 0:
+            raise Error("frames must be >= 0")
+        self_ptr[].graph.load(Int(py=node), Int(py=address), n)
+        return PythonObject(None)
+
+    @staticmethod
     def remove(
         self_ptr: Pointer[Self, MutAnyOrigin], node: PythonObject
     ) raises -> PythonObject:
@@ -402,6 +420,56 @@ def audio_devices() raises -> PythonObject:
     return out
 
 
+def timestretch(
+    source: PythonObject,
+    destination: PythonObject,
+    shape: PythonObject,
+    window: PythonObject,
+    search: PythonObject,
+) raises -> PythonObject:
+    """WSOLA over planar buffers; `shape` is (channels, frames_in, frames_out)."""
+    var src = Int(py=source)
+    var dst = Int(py=destination)
+    var channels = Int(py=shape[0])
+    var frames_in = Int(py=shape[1])
+    var frames_out = Int(py=shape[2])
+    var w = Int(py=window)
+    var s = Int(py=search)
+    if channels < 1 or frames_in < 0 or frames_out < 0:
+        raise Error("channels and frame counts must not be negative")
+    if w < 2 or s < 0:
+        raise Error("window must be at least 2 samples and search non-negative")
+    ref cpython = Python().cpython()
+    var thread_state = cpython.PyEval_SaveThread()
+    stretch_buffer(src, dst, channels, frames_in, frames_out, w, s)
+    cpython.PyEval_RestoreThread(thread_state)
+    return PythonObject(None)
+
+
+def vocoder(
+    source: PythonObject,
+    destination: PythonObject,
+    shape: PythonObject,
+    window: PythonObject,
+) raises -> PythonObject:
+    """Phase vocoder over planar buffers; `shape` is as `timestretch` takes."""
+    var src = Int(py=source)
+    var dst = Int(py=destination)
+    var channels = Int(py=shape[0])
+    var frames_in = Int(py=shape[1])
+    var frames_out = Int(py=shape[2])
+    var w = Int(py=window)
+    if channels < 1 or frames_in < 0 or frames_out < 0:
+        raise Error("channels and frame counts must not be negative")
+    if w < 4:
+        raise Error("window must be at least 4 samples")
+    ref cpython = Python().cpython()
+    var thread_state = cpython.PyEval_SaveThread()
+    vocoder_stretch(src, dst, channels, frames_in, frames_out, w)
+    cpython.PyEval_RestoreThread(thread_state)
+    return PythonObject(None)
+
+
 def node_kinds() raises -> PythonObject:
     """Names accepted by `Graph.add`."""
     var kinds = Python.list()
@@ -421,7 +489,7 @@ struct WideBank[P: WideProcessor](Movable, Writable):
     var channels: Int
 
     def __init__(out self, sample_rate: Float64, channels: Int):
-        self.unit = Self.P(sample_rate)
+        self.unit = Self.P(sample_rate, channels)
         self.channels = channels
 
     def write_to(self, mut writer: Some[Writer]):
@@ -493,6 +561,103 @@ struct WideBank[P: WideProcessor](Movable, Writable):
         return PythonObject(None)
 
 
+struct PyPlayer(Movable, Writable):
+    """`Player` exposed to Python: a `WideBank` that can be handed a source.
+
+    `load` is separate because a buffer arrives as an address and a frame
+    count, which `set(param, value)` cannot carry.
+    """
+
+    var unit: Player
+    var channels: Int
+
+    def __init__(out self, sample_rate: Float64, channels: Int):
+        self.unit = Player(sample_rate, channels)
+        self.channels = channels
+
+    def write_to(self, mut writer: Some[Writer]):
+        writer.write("Player(channels=", self.channels, ", frames=", self.unit.frames, ")")
+
+    @staticmethod
+    def py_init(out self: Self, args: PythonObject, kwargs: PythonObject) raises:
+        if len(args) != 2:
+            raise Error("expected (sample_rate, channels)")
+        var sample_rate = Float64(py=args[0])
+        var channels = Int(py=args[1])
+        if not sample_rate > 0.0:
+            raise Error("sample_rate must be positive")
+        if channels < 1:
+            raise Error("channels must be >= 1")
+        self = Self(sample_rate, channels)
+
+    @staticmethod
+    def param_names(self_ptr: Pointer[Self, MutAnyOrigin]) raises -> PythonObject:
+        var names = Python.list()
+        for name in Player.param_names():
+            names.append(PythonObject(name))
+        return names
+
+    @staticmethod
+    def input_names(self_ptr: Pointer[Self, MutAnyOrigin]) raises -> PythonObject:
+        var names = Python.list()
+        for name in Player.input_names():
+            names.append(PythonObject(name))
+        return names
+
+    @staticmethod
+    def set(
+        self_ptr: Pointer[Self, MutAnyOrigin], param: PythonObject, value: PythonObject
+    ) raises -> PythonObject:
+        self_ptr[].unit.set(Int(py=param), Float64(py=value))
+        return PythonObject(None)
+
+    @staticmethod
+    def load(
+        self_ptr: Pointer[Self, MutAnyOrigin],
+        address: PythonObject,
+        frames: PythonObject,
+    ) raises -> PythonObject:
+        var addr = Int(py=address)
+        var n = Int(py=frames)
+        if n < 0:
+            raise Error("frames must be >= 0")
+        self_ptr[].unit.load(addr, n)
+        return PythonObject(None)
+
+    @staticmethod
+    def frames(self_ptr: Pointer[Self, MutAnyOrigin]) raises -> PythonObject:
+        return PythonObject(self_ptr[].unit.frames)
+
+    @staticmethod
+    def reset(self_ptr: Pointer[Self, MutAnyOrigin]) raises -> PythonObject:
+        self_ptr[].unit.reset()
+        return PythonObject(None)
+
+    @staticmethod
+    def process(
+        self_ptr: Pointer[Self, MutAnyOrigin],
+        src: PythonObject,
+        dst: PythonObject,
+        frames: PythonObject,
+        mods: PythonObject,
+    ) raises -> PythonObject:
+        var dst_addr = Int(py=dst)
+        var n = Int(py=frames)
+        var ports = Array[Port, MAX_INPUTS](fill=Port())
+        ref unit = self_ptr[].unit
+        var channels = self_ptr[].channels
+        ports[0] = Port(Int(py=src), channels)
+        var num_mods = Int(py=len(mods))
+        for k in range(num_mods):
+            ports[k + 1] = Port(Int(py=mods[k]), channels)
+        var ports_ptr = Ports(unsafe_from_address=Int(Pointer(to=ports)))
+        ref cpython = Python().cpython()
+        var thread_state = cpython.PyEval_SaveThread()
+        unit.process(ports_ptr, SamplePtr(unsafe_from_address=dst_addr), n, channels)
+        cpython.PyEval_RestoreThread(thread_state)
+        return PythonObject(None)
+
+
 def _add_wide_bank[P: WideProcessor](
     mut m: PythonModuleBuilder, name: StaticString
 ) raises:
@@ -552,11 +717,25 @@ def PyInit__core() abi("C") -> PythonObject:
         _add_bank[Compressor](m, "mdsp._core.Compressor")
         _add_bank[Shaper](m, "mdsp._core.Shaper")
         _add_bank[Reverb](m, "mdsp._core.Reverb")
-        _add_bank[Chorus](m, "mdsp._core.Chorus")
         _add_wide_bank[Pan](m, "mdsp._core.Pan")
         _add_wide_bank[Width](m, "mdsp._core.Width")
+        _add_wide_bank[Chorus](m, "mdsp._core.Chorus")
         _add_bank[Delay](m, "mdsp._core.Delay")
+        _add_bank[Shift](m, "mdsp._core.Shift")
+        _ = (
+            m.add_type[PyPlayer]("mdsp._core.Player")
+            .def_py_init[PyPlayer.py_init]()
+            .def_method[PyPlayer.param_names]("param_names")
+            .def_method[PyPlayer.input_names]("input_names")
+            .def_method[PyPlayer.set]("set")
+            .def_method[PyPlayer.reset]("reset")
+            .def_method[PyPlayer.process]("process")
+            .def_method[PyPlayer.load]("load")
+            .def_method[PyPlayer.frames]("frames")
+        )
         m.def_function[node_kinds]("node_kinds")
+        m.def_function[timestretch]("timestretch")
+        m.def_function[vocoder]("vocoder")
         m.def_function[audio_devices]("audio_devices")
         _ = (
             m.add_type[PyStream]("mdsp._core.Stream")
@@ -574,6 +753,7 @@ def PyInit__core() abi("C") -> PythonObject:
             .def_method[PyGraph.connect]("connect")
             .def_method[PyGraph.set]("set")
             .def_method[PyGraph.remove]("remove")
+            .def_method[PyGraph.load]("load")
             .def_method[PyGraph.set_output]("set_output")
             .def_method[PyGraph.input_names]("input_names")
             .def_method[PyGraph.param_names]("param_names")

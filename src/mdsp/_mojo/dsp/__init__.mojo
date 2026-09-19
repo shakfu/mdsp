@@ -15,6 +15,11 @@ from dsp.filters import Biquad, OnePole, Svf
 from dsp.ops import Gain, Mix, Scale, Shaper
 from dsp.chorus import Chorus
 from dsp.delay import Delay
+from dsp.shift import Shift
+from dsp.fft import Fft, RealFft, round_up_pow2
+from dsp.player import Player
+from dsp.stretch import timestretch
+from dsp.vocoder import vocoder_stretch
 from dsp.dynamics import Compressor
 from dsp.envelope import Adsr
 from dsp.reverb import Reverb

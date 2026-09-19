@@ -1,11 +1,13 @@
 """The wheel build hook bundles the Mojo runtime so the extension loads without Mojo."""
 
+import importlib.metadata
 import subprocess
 import sys
 
 import pytest
 
 import hatch_build
+import mdsp
 
 pytestmark = pytest.mark.skipif(
     sys.platform != "linux", reason="checks ELF runpaths; macOS is covered by wheel CI"
@@ -40,3 +42,8 @@ print("\\n".join(sorted({{line.split()[-1] for line in maps.splitlines() if "lib
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     ).stdout.split()
     assert loaded == [str(tmp_path / "_libs" / "libKGENCompilerRTShared.so")]
+
+
+def test_the_version_is_the_same_in_both_places():
+    """`make release` rewrites pyproject.toml; `__version__` has to follow."""
+    assert mdsp.__version__ == importlib.metadata.version("mdsp")

@@ -21,20 +21,40 @@ mdsp.write_wav("out.wav", chain.process(buf), fmt="int24")
 |-|-|
 | Generators | `Phasor`, `Sine`, `Saw`, `Square` (PolyBLEP band-limited), `Noise` (white or pink) |
 | Envelopes | `Adsr` |
-| Filters | `OnePole`, `Svf`, `Biquad` (lowpass, highpass, bandpass, notch, low/high shelf, peaking) |
-| Delays | `Delay` (fractional, modulated, feedback, mix), `Chorus` (flanging and chorus) |
-| Dynamics | `Compressor` (sidechain, soft knee), `Limiter` |
+| Filters | `OnePole`, `Svf` and `Biquad` (both: lowpass, highpass, bandpass, notch, low/high shelf, peaking) |
+| Delays | `Delay` (fractional, modulated, feedback, mix), `Chorus` (flanging and chorus, multi-voice, stereo spread) |
+| Dynamics | `Compressor` (sidechain, soft knee, peak or RMS detector, lookahead), `Limiter` |
 | Effects | `Shaper` (tanh, soft, hard), `Reverb` (Freeverb-style) |
+| Pitch and time | `Shift` (pitch, same length), `Player` (variable-speed playback), `timestretch` (offline, WSOLA or phase vocoder) |
 | Stereo | `Pan` (constant power), `Width` |
-| Ops | `Gain` |
-| Ops | `Scale` (map [-1, 1] onto a parameter range), `Mix` (sum up to four inputs) |
+| Ops | `Gain`, `Scale` (map [-1, 1] onto a parameter range), `Mix` (sum up to four inputs) |
 | Composition | `Chain`, `Graph` |
 | Files | `read_wav`, `write_wav` |
-| Real time | `Stream`, `output_devices` |
+| Real time | `Stream`, `output_devices`, `input_devices` |
+
+A unit is either a `Processor`, which takes a buffer and returns one of the same length, or a `Generator`, which takes a frame count: the oscillators, `Noise`, `Adsr` and `Player` make samples, everything else transforms them.
 
 `read_wav` and `write_wav` handle PCM 8/16/24/32 and float 32/64 WAV files with no dependencies. For other formats, read with [soundfile](https://pypi.org/project/soundfile/) and wrap the samples in an `AudioBuffer`.
 
-`Svf` is a topology-preserving state-variable filter; modulate it rather than `Biquad`, which overshoots when its coefficients change fast.
+`Svf` is a topology-preserving state-variable filter; modulate it rather than `Biquad`, which overshoots when its coefficients change fast. Both take the same modes, so an EQ shape that has to move is an `Svf`.
+
+`timestretch` is a function, not a unit: it returns a buffer of a different length, and nothing in a `Chain` or `Graph` may return more frames than it was handed. To stretch in real time, play a `Player` at `1 / factor` and put the pitch back with `Shift`.
+
+It takes two algorithms. `wsola` moves the splice and keeps transients; `vocoder` moves each bin's phase and keeps tonal and polyphonic material. Pick by source: drums take `wsola`, a chord takes `vocoder`.
+
+```python
+import math
+
+slow = mdsp.timestretch(buf, 1.5)                    # offline, 50% longer
+pad  = mdsp.timestretch(buf, 1.5, mode="vocoder")    # same, for tonal material
+
+g = mdsp.Graph(sample_rate=48000.0)                  # or the same in real time
+src = g.add(mdsp.Player, rate=1 / 1.5)
+fix = g.add(mdsp.Shift, semitones=12 * math.log2(1.5))
+g.connect(src, fix)
+g.output = fix
+g.load(src, buf)
+```
 
 ## Modulation
 
@@ -80,7 +100,9 @@ A feedback delay counts samples, so a patch sounds the same whatever block size 
 
 `remove(node)` empties a node's slot and drops its connections. Other handles keep working, because nothing is renumbered.
 
-Most units are mono and run once per channel with their own state. `Pan` and `Width` see every channel at once, which is what panning and stereo width need.
+Most units are mono and run once per channel with their own state. `Pan`, `Width`, `Chorus` and `Player` see every channel at once: panning and stereo width mix channels, while a chorus spread and a playback position have to stay aligned across them.
+
+A `player` node takes its samples through `g.load(node, buf)` rather than `g.set`, which carries only a float. The buffer is copied, and must match the graph's sample rate and channel count.
 
 Units are stateful: state carries across `process` / `generate` calls until `reset()`. An instance is not thread-safe; separate instances run in parallel threads.
 
@@ -131,7 +153,7 @@ make wheel   # platform wheel with bundled runtime, repaired into dist/
 
 | Path | Contents |
 |-|-|
-| `src/mdsp/_mojo/dsp/` | Mojo kernels implementing the `Processor` trait |
+| `src/mdsp/_mojo/dsp/` | Mojo kernels (`Processor`, or `WideProcessor` when they see every channel), plus the FFT and the offline stretchers |
 | `src/mdsp/_mojo/_core.mojo` | Python bindings: `Bank[P]`, one kernel per channel |
 | `src/mdsp/_base.py` | Python base classes; validates buffers before they reach Mojo |
 | `tests/mojo/` | Kernel contract tests, run by pytest via `mojo run` |
@@ -140,4 +162,6 @@ make wheel   # platform wheel with bundled runtime, repaired into dist/
 
 ## Direction
 
-The Python block chain is the first layer. The planned next layer is a graph engine in Mojo that runs a whole graph per call, reusing the same kernels. See `docs/dev/spikes/2026-09-15-dispatch-gil/`.
+Both layers of the original plan are in: the Python block chain, and `Graph`, which runs a whole patch per call in Mojo over the same kernels (`docs/dev/spikes/2026-09-15-dispatch-gil/`).
+
+What is not is spectral processing in real time. `dsp/fft.mojo` and the phase vocoder run offline; the framing that would let a `Processor` drive them needs latency reporting and a way to spread a transform across a block. `TODO.md` carries both, with the SIMD work the FFT still wants.
