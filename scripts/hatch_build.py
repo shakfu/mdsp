@@ -138,7 +138,7 @@ def bundle_runtime(extension: Path) -> list[Path]:
     return copied
 
 
-class MojoBuildHook(BuildHookInterface[Any, Any]):
+class MojoBuildHook(BuildHookInterface[Any]):
     PLUGIN_NAME = "custom"
 
     def initialize(self, version: str, build_data: dict[str, Any]) -> None:
